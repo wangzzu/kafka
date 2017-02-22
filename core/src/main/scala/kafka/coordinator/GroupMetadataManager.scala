@@ -43,6 +43,7 @@ import org.apache.kafka.common.utils.{Time, Utils}
 import scala.collection.JavaConverters._
 import scala.collection._
 
+//NOTE: 每个 GroupCoordinator 都会有一个 GroupMetadataManager 对象实例
 class GroupMetadataManager(val brokerId: Int,
                            val interBrokerProtocolVersion: ApiVersion,
                            val config: OffsetConfig,
@@ -100,10 +101,12 @@ class GroupMetadataManager(val brokerId: Int,
   def currentGroups(): Iterable[GroupMetadata] = groupMetadataCache.values
 
   def isPartitionOwned(partition: Int) = inLock(partitionLock) { ownedPartitions.contains(partition) }
+  //NOTE: 当前这个 GroupCoordinator 是否包含这个 partition
 
   def isPartitionLoading(partition: Int) = inLock(partitionLock) { loadingPartitions.contains(partition) }
 
   def partitionFor(groupId: String): Int = Utils.abs(groupId.hashCode) % groupMetadataTopicPartitionCount
+  //NOTE: 找到 group 所对应 partitionId
 
   def isGroupLocal(groupId: String): Boolean = isPartitionOwned(partitionFor(groupId))
 

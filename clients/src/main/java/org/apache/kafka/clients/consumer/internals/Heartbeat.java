@@ -58,13 +58,14 @@ public final class Heartbeat {
     }
 
     public boolean shouldHeartbeat(long now) {
-        return timeToNextHeartbeat(now) == 0;
+        return timeToNextHeartbeat(now) == 0;//NOTE: 是否应该发送心跳
     }
     
     public long lastHeartbeatSend() {
         return this.lastHeartbeatSend;
     }
 
+    //NOTE: 返回还有多长时间发送心跳,已经达到时,返回0,否则返回剩余时间
     public long timeToNextHeartbeat(long now) {
         long timeSinceLastHeartbeat = now - Math.max(lastHeartbeatSend, lastSessionReset);
         final long delayToNextHeartbeat;

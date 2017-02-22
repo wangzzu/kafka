@@ -244,14 +244,15 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
      * @param now current time in milliseconds
      */
     public void poll(long now) {
-        invokeCompletedOffsetCommitCallbacks();
+        invokeCompletedOffsetCommitCallbacks();//NOTE: 触发回调函数
 
         if (subscriptions.partitionsAutoAssigned() && coordinatorUnknown()) {
-            ensureCoordinatorReady();
+            //NOTE: 通过 subscribe() 方法订阅 topic,并且 coordinator 未知
+            ensureCoordinatorReady();//NOTE: 获取 GroupCoordinator 地址,并且建立连接
             now = time.milliseconds();
         }
 
-        if (needRejoin()) {
+        if (needRejoin()) {//NOTE: 判断是否需要重新加入 group,如果订阅的 partition 变化或则分配的 partition 变化时,需要 rejoin
             // due to a race condition between the initial metadata fetch and the initial rebalance,
             // we need to ensure that the metadata is fresh before joining initially. This ensures
             // that we have matched the pattern against the cluster's topics at least once before joining.
@@ -259,11 +260,12 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                 client.ensureFreshMetadata();
 
             ensureActiveGroup();
+            //NOTE: 确保 group 是 active;加入 group;分配订阅的 partition
             now = time.milliseconds();
         }
 
-        pollHeartbeat(now);
-        maybeAutoCommitOffsetsAsync(now);
+        pollHeartbeat(now);//NOTE: 检查心跳线程运行是否正常,如果心跳线程失败,则抛出异常,反之更新 poll 调用的时间
+        maybeAutoCommitOffsetsAsync(now);//NOTE: 自动 commit 时,当定时达到时,进行自动 commit
     }
 
     /**
@@ -281,6 +283,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         return Math.min(nextAutoCommitDeadline - now, timeToNextHeartbeat(now));
     }
 
+    //NOTE: 作为 group 的 leader,给 Consumer 的实例分配 partition
     @Override
     protected Map<String, ByteBuffer> performAssignment(String leaderId,
                                                         String assignmentStrategy,
@@ -299,7 +302,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
 
         // the leader will begin watching for changes to any of the topics the group is interested in,
         // which ensures that all metadata changes will eventually be seen
-        this.subscriptions.groupSubscribe(allSubscribedTopics);
+        this.subscriptions.groupSubscribe(allSubscribedTopics);//NOTE: 监控这些 topics 的变化
         metadata.setTopics(this.subscriptions.groupSubscription());
 
         // update metadata (if needed) and keep track of the metadata used for assignment so that
@@ -312,7 +315,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         log.debug("Performing assignment for group {} using strategy {} with subscriptions {}",
                 groupId, assignor.name(), subscriptions);
 
-        Map<String, Assignment> assignment = assignor.assign(metadata.fetch(), subscriptions);
+        Map<String, Assignment> assignment = assignor.assign(metadata.fetch(), subscriptions);//NOTE: 进行 assign
 
         log.debug("Finished assignment for group {}: {}", groupId, assignment);
 
@@ -349,14 +352,16 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
 
     @Override
     public boolean needRejoin() {
-        if (!subscriptions.partitionsAutoAssigned())
+        if (!subscriptions.partitionsAutoAssigned())//NOTE: 如果不是通过 subscribe 订阅返回 false
             return false;
 
         // we need to rejoin if we performed the assignment and metadata has changed
+        //NOTE: 如果需要分配的集合不为空,并且与之前保存 metadata 不同时返回 true
         if (assignmentSnapshot != null && !assignmentSnapshot.equals(metadataSnapshot))
             return true;
 
         // we need to join if our subscription has changed since the last join
+        //NOTE: 如果订阅的 partition 发生变化返回 true
         if (joinedSubscription != null && !joinedSubscription.equals(subscriptions.subscription()))
             return true;
 
@@ -436,6 +441,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     }
 
 
+    //NOTE: 异步 commit 的方法,如果 GroupCoordinator 已知,直接进行 commit,否则先找到 GroupCoordinator 再进行 commit
     public void commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
         invokeCompletedOffsetCommitCallbacks();
 
@@ -500,6 +506,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
      *             or to any of the specified partitions
      * @throws CommitFailedException if an unrecoverable error occurs before the commit can be completed
      */
+    //NOTE: 同步 commit
     public void commitOffsetsSync(Map<TopicPartition, OffsetAndMetadata> offsets) {
         invokeCompletedOffsetCommitCallbacks();
 
@@ -531,7 +538,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                 this.nextAutoCommitDeadline = now + retryBackoffMs;
             } else if (now >= nextAutoCommitDeadline) {
                 this.nextAutoCommitDeadline = now + autoCommitIntervalMs;
-                doAutoCommitOffsetsAsync();
+                doAutoCommitOffsetsAsync();//NOTE: 定时达到时,才会进行操作
             }
         }
     }
@@ -541,6 +548,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
             doAutoCommitOffsetsAsync();
     }
 
+    //NOTE: 自动对 offset 进行同步 commit
     private void doAutoCommitOffsetsAsync() {
         commitOffsetsAsync(subscriptions.allConsumed(), new OffsetCommitCallback() {
             @Override
@@ -793,6 +801,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         }
     }
 
+    //NOTE: 记录所订阅的所有 topic 及其 partition 总数
     private static class MetadataSnapshot {
         private final Map<String, Integer> partitionsPerTopic;
 

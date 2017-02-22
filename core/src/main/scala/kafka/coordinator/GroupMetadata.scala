@@ -139,6 +139,7 @@ case class GroupSummary(state: String,
  *  3. leader id
  */
 @nonthreadsafe
+//NOTE: group 的 meta 信息,对 group 级别而言,每个 group 都会有一个实例对象
 private[coordinator] class GroupMetadata(val groupId: String, initialState: GroupState = Empty) {
 
   private var state: GroupState = initialState
@@ -156,6 +157,7 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
   def has(memberId: String) = members.contains(memberId)
   def get(memberId: String) = members(memberId)
 
+  //NOTE: 将该 member 加入 group 中,如果 group 中现在没有 member 那就将这个 member 设置该 group 的 leader
   def add(memberId: String, member: MemberMetadata) {
     if (members.isEmpty)
       this.protocolType = Some(member.protocolType)
@@ -235,8 +237,8 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
     if (members.nonEmpty) {
       generationId += 1
       protocol = selectProtocol
-      transitionTo(AwaitingSync)
-    } else {
+      transitionTo(AwaitingSync)//NOTE: PreParingRebalance 变为 AwaitingSync 状态
+    } else {//NOTE: group 内没有 member 时,变为 Empty
       generationId += 1
       protocol = null
       transitionTo(Empty)

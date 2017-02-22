@@ -52,6 +52,7 @@ public interface PartitionAssignor {
      * @return A map from the members to their respective assignment. This should have one entry
      *         for all members who in the input subscription map.
      */
+    //NOTE: 进行 assign 的方法
     Map<String, Assignment> assign(Cluster metadata, Map<String, Subscription> subscriptions);
 
 
@@ -59,6 +60,7 @@ public interface PartitionAssignor {
      * Callback which is invoked when a group member receives its assignment from the leader.
      * @param assignment The local member's assignment as provided by the leader in {@link #assign(Cluster, Map)}
      */
+    //NOTE: 当 Consumer 实例从 leader 获取到它的 assignments 时会调用这个回调函数；
     void onAssignment(Assignment assignment);
 
 

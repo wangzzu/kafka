@@ -667,6 +667,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
    * is the controller. It merely registers the session expiration listener and starts the controller leader
    * elector
    */
+  //NOTE: 当 broker 的 controller 模块启动时触发,它比并不保证当前 broker 是 controller,它仅仅是注册 registerSessionExpirationListener 和启动 controllerElector
   def startup() = {
     inLock(controllerContext.controllerLock) {
       info("Controller starting up")

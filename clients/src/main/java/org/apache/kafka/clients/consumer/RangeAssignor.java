@@ -56,6 +56,7 @@ public class RangeAssignor extends AbstractPartitionAssignor {
     }
 
     @Override
+    //NOTE:
     public Map<String, List<TopicPartition>> assign(Map<String, Integer> partitionsPerTopic,
                                                     Map<String, List<String>> subscriptions) {
         Map<String, List<String>> consumersPerTopic = consumersPerTopic(subscriptions);

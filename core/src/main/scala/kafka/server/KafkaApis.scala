@@ -819,6 +819,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     val topics =
       // Handle old metadata request logic. Version 0 has no way to specify "no topics".
+      //NOTE: 为了兼容0.10.0之前的版本,如果 version 为0,就不会返回 controller 的信息
       if (requestVersion == 0) {
         if (metadataRequest.topics() == null || metadataRequest.topics().isEmpty)
           metadataCache.getAllTopics()
@@ -976,6 +977,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
+  //NOTE: 处理 describe-group 请求
   def handleDescribeGroupRequest(request: RequestChannel.Request) {
     val describeRequest = request.body.asInstanceOf[DescribeGroupsRequest]
 
@@ -1024,7 +1026,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
 
     if (!authorize(request.session, Read, new Resource(Group, joinGroupRequest.groupId()))) {
-      val responseBody = new JoinGroupResponse(
+      val responseBody = new JoinGroupResponse(//NOTE: 认证失败（对 group 进行认证）
         request.header.apiVersion,
         Errors.GROUP_AUTHORIZATION_FAILED.code,
         JoinGroupResponse.UNKNOWN_GENERATION_ID,
@@ -1033,11 +1035,11 @@ class KafkaApis(val requestChannel: RequestChannel,
         JoinGroupResponse.UNKNOWN_MEMBER_ID, // leaderId
         Collections.emptyMap())
       requestChannel.sendResponse(new RequestChannel.Response(request, responseBody))
-    } else {
+    } else {//NOTE: 认证成功
       // let the coordinator to handle join-group
       val protocols = joinGroupRequest.groupProtocols().asScala.map(protocol =>
         (protocol.name, Utils.toArray(protocol.metadata))).toList
-      coordinator.handleJoinGroup(
+      coordinator.handleJoinGroup(//NOTE: 由 GroupCoordinator 进行处理
         joinGroupRequest.groupId,
         joinGroupRequest.memberId,
         request.header.clientId,
@@ -1053,15 +1055,15 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleSyncGroupRequest(request: RequestChannel.Request) {
     val syncGroupRequest = request.body.asInstanceOf[SyncGroupRequest]
 
-    def sendResponseCallback(memberState: Array[Byte], errorCode: Short) {
+    def sendResponseCallback(memberState: Array[Byte], errorCode: Short) {//NOTE: 回调函数
       val responseBody = new SyncGroupResponse(errorCode, ByteBuffer.wrap(memberState))
-      requestChannel.sendResponse(new Response(request, responseBody))
+      requestChannel.sendResponse(new Response(request, responseBody))//NOTE: 返回 assignment 结果
     }
 
-    if (!authorize(request.session, Read, new Resource(Group, syncGroupRequest.groupId()))) {
+    if (!authorize(request.session, Read, new Resource(Group, syncGroupRequest.groupId()))) {//NOTE: 权限认证
       sendResponseCallback(Array[Byte](), Errors.GROUP_AUTHORIZATION_FAILED.code)
     } else {
-      coordinator.handleSyncGroup(
+      coordinator.handleSyncGroup(//NOTE: 调用 coordinator 进行相应处理
         syncGroupRequest.groupId(),
         syncGroupRequest.generationId(),
         syncGroupRequest.memberId(),

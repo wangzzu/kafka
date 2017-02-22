@@ -145,6 +145,7 @@ public class Fetcher<K, V> {
      * an in-flight fetch or pending fetch data.
      * @return number of fetches sent
      */
+    //NOTE: 向订阅的所有 partition （只要该 leader 暂时没有拉取请求）所在 leader 发送 fetch 请求
     public int sendFetches() {
         Map<Node, FetchRequest> fetchRequestMap = createFetchRequests();
         for (Map.Entry<Node, FetchRequest> fetchEntry : fetchRequestMap.entrySet()) {
@@ -415,7 +416,7 @@ public class Fetcher<K, V> {
      */
     public Map<TopicPartition, List<ConsumerRecord<K, V>>> fetchedRecords() {
         Map<TopicPartition, List<ConsumerRecord<K, V>>> drained = new HashMap<>();
-        int recordsRemaining = maxPollRecords;
+        int recordsRemaining = maxPollRecords;//NOTE: 在 max.poll.records 中设置单词最大的拉取条数
 
         while (recordsRemaining > 0) {
             if (nextInLineRecords == null || nextInLineRecords.isDrained()) {

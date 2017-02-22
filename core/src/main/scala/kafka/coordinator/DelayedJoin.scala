@@ -29,6 +29,8 @@ import kafka.server.DelayedOperation
  * the group are marked as failed, and complete this operation to proceed rebalance with
  * the rest of the group.
  */
+//NOTE: 当一个收到 JoinGroup 请求时,检查所有的 member 是否已经发送 rejoin 请求,如果是,完成之后进行 rebalance;
+//NOTE: 如果操作超时的话,没有发送 rejoin 请求的 member 被标记为 failed,使用剩下的 member 进行 rebalance;
 private[coordinator] class DelayedJoin(coordinator: GroupCoordinator,
                                        group: GroupMetadata,
                                        rebalanceTimeout: Long)

@@ -439,6 +439,7 @@ public class NetworkClient implements KafkaClient {
             Node node = nodes.get(idx);
             int currInflight = this.inFlightRequests.inFlightRequestCount(node.idString());
             if (currInflight == 0 && this.connectionStates.isReady(node.idString())) {
+                // NOTE：如果这个节点 is ready,并且没有 in-flight requests。
                 // if we find an established connection with no in-flight requests we can stop right away
                 return node;
             } else if (!this.connectionStates.isBlackedOut(node.idString(), now) && currInflight < inflight) {

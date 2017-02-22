@@ -71,11 +71,11 @@ public class RoundRobinAssignor extends AbstractPartitionAssignor {
 
     public List<TopicPartition> allPartitionsSorted(Map<String, Integer> partitionsPerTopic,
                                                     Map<String, List<String>> subscriptions) {
-        SortedSet<String> topics = new TreeSet<>();
+        SortedSet<String> topics = new TreeSet<>();//NOTE: 所有的 topics（有序）
         for (List<String> subscription : subscriptions.values())
             topics.addAll(subscription);
 
-        List<TopicPartition> allPartitions = new ArrayList<>();
+        List<TopicPartition> allPartitions = new ArrayList<>();//NOTE: 订阅的 Topic的所有的 TopicPartition 集合
         for (String topic : topics) {
             Integer numPartitionsForTopic = partitionsPerTopic.get(topic);
             if (numPartitionsForTopic != null)

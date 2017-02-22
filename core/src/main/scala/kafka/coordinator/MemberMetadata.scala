@@ -51,6 +51,7 @@ case class MemberSummary(memberId: String,
  *                            and the group transitions to stable
  */
 @nonthreadsafe
+//NOTE: 记录 group 中每个成员的状态信息
 private[coordinator] class MemberMetadata(val memberId: String,
                                           val groupId: String,
                                           val clientId: String,
@@ -61,7 +62,9 @@ private[coordinator] class MemberMetadata(val memberId: String,
                                           var supportedProtocols: List[(String, Array[Byte])]) {
 
   var assignment: Array[Byte] = Array.empty[Byte]
+  //NOTE: 当 group 在 preparing-rebalance 状态时,如果 member 发送 join-group 请求,它的 rebalance callback 就会保存在 meta 里
   var awaitingJoinCallback: JoinGroupResult => Unit = null
+  //NOTE: 当 group 在 awaiting-sync 状态时,该 member 的 sync callback 会保存在 meta 中直到 leader 提供了 assignment 并且 group 变为 stable
   var awaitingSyncCallback: (Array[Byte], Short) => Unit = null
   var latestHeartbeat: Long = -1
   var isLeaving: Boolean = false

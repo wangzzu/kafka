@@ -1002,6 +1002,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             long remaining = timeout;
             do {
                 Map<TopicPartition, List<ConsumerRecord<K, V>>> records = pollOnce(remaining);
+                //NOTE: 从订阅的 partition 中拉取数据,pollOnce() 才是对 Consumer 客户端拉取数据的核心实现
                 if (!records.isEmpty()) {
                     // before returning the fetched records, we can send off the next round of fetches
                     // and avoid block waiting for their responses to enable pipelining while the user
@@ -1035,21 +1036,24 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * @param timeout The maximum time to block in the underlying call to {@link ConsumerNetworkClient#poll(long)}.
      * @return The fetched records (may be empty)
      */
+    //NOTE: 一次 poll 过程
     private Map<TopicPartition, List<ConsumerRecord<K, V>>> pollOnce(long timeout) {
-        coordinator.poll(time.milliseconds());
+        coordinator.poll(time.milliseconds());//NOTE： 获取 GroupCoordinator 并连接、加入 Group、Group 进行 rebalance 并获取 assignment
 
         // fetch positions if we have partitions we're subscribed to that we
         // don't know the offset for
-        if (!subscriptions.hasAllFetchPositions())
+        if (!subscriptions.hasAllFetchPositions())//NOTE: 更新 offset
             updateFetchPositions(this.subscriptions.missingFetchPositions());
 
         // if data is available already, return it immediately
         Map<TopicPartition, List<ConsumerRecord<K, V>>> records = fetcher.fetchedRecords();
+        //NOTE： 根据最大限制拉取数据（按 partition 拉取,这个 partition 数据拉取完之后,拉取下一个 partition）
         if (!records.isEmpty())
             return records;
+        //NOTE: 说明上次 fetch 到是的数据已经全部拉取了,需要再次发送 fetch 请求,从 broker 拉取数据
 
         // send any new fetches (won't resend pending fetches)
-        fetcher.sendFetches();
+        fetcher.sendFetches();//NOTE: 向订阅的所有 partition 发送 fetch 请求,会从多个 partition 拉取数据
 
         long now = time.milliseconds();
         long pollTimeout = Math.min(coordinator.timeToNextPoll(now), timeout);

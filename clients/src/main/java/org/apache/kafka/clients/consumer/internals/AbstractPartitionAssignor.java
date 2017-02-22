@@ -28,6 +28,7 @@ import java.util.Set;
  * Abstract assignor implementation which does some common grunt work (in particular collecting
  * partition counts which are always needed in assignors).
  */
+//NOTE: 对于一个 assignor 来说的,一些公共实现方法
 public abstract class AbstractPartitionAssignor implements PartitionAssignor {
     private static final Logger log = LoggerFactory.getLogger(AbstractPartitionAssignor.class);
 
@@ -38,6 +39,7 @@ public abstract class AbstractPartitionAssignor implements PartitionAssignor {
      * @param subscriptions Map from the memberId to their respective topic subscription
      * @return Map from each member to the list of partitions assigned to them.
      */
+    //NOTE: 根据 partitionsPerTopic 和 subscriptions 进行分配,具体的实现会在子类中实现（不同的子类的实现各异）
     public abstract Map<String, List<TopicPartition>> assign(Map<String, Integer> partitionsPerTopic,
                                                              Map<String, List<String>> subscriptions);
 
@@ -75,6 +77,7 @@ public abstract class AbstractPartitionAssignor implements PartitionAssignor {
     }
 
     @Override
+    //NOTE: do nothing
     public void onAssignment(Assignment assignment) {
         // this assignor maintains no internal state, so nothing to do
     }

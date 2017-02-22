@@ -628,6 +628,7 @@ class ReplicaManager(val config: KafkaConfig,
       replica.log.map(log => (log.config.messageFormatVersion.messageFormatVersion, log.config.messageTimestampType))
     }
 
+  //NOTE: Controller 向所有的 Broker 发送请求,让它们去更新各自的 meta 信息
   def maybeUpdateMetadataCache(correlationId: Int, updateMetadataRequest: UpdateMetadataRequest, metadataCache: MetadataCache) {
     replicaStateChangeLock synchronized {
       if(updateMetadataRequest.controllerEpoch < controllerEpoch) {

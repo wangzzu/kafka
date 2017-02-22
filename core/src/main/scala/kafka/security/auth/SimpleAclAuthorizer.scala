@@ -119,6 +119,7 @@ class SimpleAclAuthorizer extends Authorizer with Logging {
     aclChangeListener.init()
   }
 
+  //NOTE: acls 认证
   override def authorize(session: Session, operation: Operation, resource: Resource): Boolean = {
     val principal = session.principal
     val host = session.clientAddress.getHostAddress
