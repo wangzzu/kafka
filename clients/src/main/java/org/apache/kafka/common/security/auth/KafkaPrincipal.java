@@ -26,6 +26,7 @@ public class KafkaPrincipal implements Principal {
     private String principalType;
     private String name;
 
+    //note: 保存用户的用户名信息
     public KafkaPrincipal(String principalType, String name) {
         if (principalType == null || name == null) {
             throw new IllegalArgumentException("principalType and name can not be null");

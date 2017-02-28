@@ -309,7 +309,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             List<InetSocketAddress> addresses = ClientUtils.parseAndValidateAddresses(config.getList(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG));
             this.metadata.update(Cluster.bootstrap(addresses), time.milliseconds());
-            ChannelBuilder channelBuilder = ClientUtils.createChannelBuilder(config.values());
+            ChannelBuilder channelBuilder = ClientUtils.createChannelBuilder(config.values());//NOTE: 创建对应的 channel
             NetworkClient client = new NetworkClient(
                     new Selector(config.getLong(ProducerConfig.CONNECTIONS_MAX_IDLE_MS_CONFIG), this.metrics, time, "producer", channelBuilder),
                     this.metadata,
@@ -320,7 +320,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     config.getInt(ProducerConfig.RECEIVE_BUFFER_CONFIG),
                     this.requestTimeoutMs,
                     time,
-                    EXPECTED_API_VERSIONS);
+                    EXPECTED_API_VERSIONS);//NOTE: NetworkClient 实例
             this.sender = new Sender(client,
                     this.metadata,
                     this.accumulator,
@@ -330,7 +330,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     config.getInt(ProducerConfig.RETRIES_CONFIG),
                     this.metrics,
                     Time.SYSTEM,
-                    this.requestTimeoutMs);
+                    this.requestTimeoutMs);//NOTE: Sender 实例,发送请求的后台线程
             String ioThreadName = "kafka-producer-network-thread" + (clientId.length() > 0 ? " | " + clientId : "");
             this.ioThread = new KafkaThread(ioThreadName, this.sender, true);
             this.ioThread.start();
@@ -450,6 +450,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     /**
      * Implementation of asynchronously send a record to a topic.
      */
+    //note: 异步向 topic 发送数据的方法实现
     private Future<RecordMetadata> doSend(ProducerRecord<K, V> record, Callback callback) {
         TopicPartition tp = null;
         try {
@@ -530,15 +531,16 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * @param maxWaitMs The maximum time in ms for waiting on the metadata
      * @return The cluster containing topic metadata and the amount of time we waited in ms
      */
+    //note: 等待 metadata 的更新
     private ClusterAndWaitTime waitOnMetadata(String topic, Integer partition, long maxWaitMs) throws InterruptedException {
         // add topic to metadata topic list if it is not there already and reset expiry
         metadata.add(topic);
         Cluster cluster = metadata.fetch();
-        Integer partitionsCount = cluster.partitionCountForTopic(topic);
+        Integer partitionsCount = cluster.partitionCountForTopic(topic);//note: 如果 topic 已经存在 meta 中,则返回该 topic 的 partition 数,否则返回 null
         // Return cached metadata if we have it, and if the record's partition is either undefined
         // or within the known partition range
         if (partitionsCount != null && (partition == null || partition < partitionsCount))
-            return new ClusterAndWaitTime(cluster, 0);
+            return new ClusterAndWaitTime(cluster, 0);//note: 如果该 cache 存在,并且满足条件,直接返回
 
         long begin = time.milliseconds();
         long remainingWaitMs = maxWaitMs;
@@ -549,10 +551,10 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         // is stale and the number of partitions for this topic has increased in the meantime.
         do {
             log.trace("Requesting metadata update for topic {}.", topic);
-            int version = metadata.requestUpdate();
-            sender.wakeup();
+            int version = metadata.requestUpdate();//note:返回当前版本号,初始值为0,每次更新时会自增,并将 needUpdate 设置为 true
+            sender.wakeup();//note: 唤起 sender
             try {
-                metadata.awaitUpdate(version, remainingWaitMs);
+                metadata.awaitUpdate(version, remainingWaitMs);//note: 等待 metadata 的更新
             } catch (TimeoutException ex) {
                 // Rethrow with original maxWaitMs to prevent logging exception with remainingWaitMs
                 throw new TimeoutException("Failed to update metadata after " + maxWaitMs + " ms.");
@@ -560,12 +562,12 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             cluster = metadata.fetch();
             elapsed = time.milliseconds() - begin;
             if (elapsed >= maxWaitMs)
-                throw new TimeoutException("Failed to update metadata after " + maxWaitMs + " ms.");
-            if (cluster.unauthorizedTopics().contains(topic))
+                throw new TimeoutException("Failed to update metadata after " + maxWaitMs + " ms.");//note: 超时
+            if (cluster.unauthorizedTopics().contains(topic))//note: 认证失败
                 throw new TopicAuthorizationException(topic);
             remainingWaitMs = maxWaitMs - elapsed;
             partitionsCount = cluster.partitionCountForTopic(topic);
-        } while (partitionsCount == null);
+        } while (partitionsCount == null);//note: 不端循环,直到 partitionsCount 不为 null
 
         if (partition != null && partition >= partitionsCount) {
             throw new KafkaException(

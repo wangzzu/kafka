@@ -224,7 +224,7 @@ public class SaslServerAuthenticator implements Authenticator {
                         // For default GSSAPI, fall through to authenticate using the client token as the first GSSAPI packet.
                         // This is required for interoperability with 0.9.0.x clients which do not send handshake request
                     case AUTHENTICATE:
-                        byte[] response = saslServer.evaluateResponse(clientToken);
+                        byte[] response = saslServer.evaluateResponse(clientToken);//note: 调用 loginmodule 的认证方法进行认证
                         if (response != null) {
                             netOutBuffer = new NetworkSend(node, ByteBuffer.wrap(response));
                             flushNetOutBufferAndUpdateInterestOps();
@@ -295,7 +295,7 @@ public class SaslServerAuthenticator implements Authenticator {
             ApiKeys apiKey = ApiKeys.forId(requestHeader.apiKey());
             // A valid Kafka request header was received. SASL authentication tokens are now expected only
             // following a SaslHandshakeRequest since this is not a GSSAPI client token from a Kafka 0.9.0.x client.
-            setSaslState(SaslState.HANDSHAKE_REQUEST);
+            setSaslState(SaslState.HANDSHAKE_REQUEST);//note: 设置当前状态
             isKafkaRequest = true;
 
             if (!Protocol.apiVersionSupported(requestHeader.apiKey(), requestHeader.apiVersion())) {
@@ -312,7 +312,7 @@ public class SaslServerAuthenticator implements Authenticator {
                         handleApiVersionsRequest(requestHeader);
                         break;
                     case SASL_HANDSHAKE:
-                        clientMechanism = handleHandshakeRequest(requestHeader, (SaslHandshakeRequest) request);
+                        clientMechanism = handleHandshakeRequest(requestHeader, (SaslHandshakeRequest) request);//note:返回请求
                         break;
                     default:
                         throw new IllegalSaslStateException("Unexpected Kafka request of type " + apiKey + " during SASL handshake.");
@@ -342,7 +342,7 @@ public class SaslServerAuthenticator implements Authenticator {
         }
         if (clientMechanism != null) {
             createSaslServer(clientMechanism);
-            setSaslState(SaslState.AUTHENTICATE);
+            setSaslState(SaslState.AUTHENTICATE);//note: 到认证阶段
         }
         return isKafkaRequest;
     }

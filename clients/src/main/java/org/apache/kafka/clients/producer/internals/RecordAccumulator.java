@@ -57,6 +57,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * The accumulator uses a bounded amount of memory and append calls will block when that memory is exhausted, unless
  * this behavior is explicitly disabled.
  */
+//NOTE: 这是一个保存即将发送到 Server 端的 message 队列,它占用的内存是有界的,当内存超出时线程就会阻塞（除非阻塞被明确禁止）
 public final class RecordAccumulator {
 
     private static final Logger log = LoggerFactory.getLogger(RecordAccumulator.class);
@@ -107,7 +108,7 @@ public final class RecordAccumulator {
         this.retryBackoffMs = retryBackoffMs;
         this.batches = new CopyOnWriteMap<>();
         String metricGrpName = "producer-metrics";
-        this.free = new BufferPool(totalSize, batchSize, metrics, time, metricGrpName);
+        this.free = new BufferPool(totalSize, batchSize, metrics, time, metricGrpName);//
         this.incomplete = new IncompleteRecordBatches();
         this.muted = new HashSet<>();
         this.time = time;

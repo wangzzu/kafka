@@ -32,7 +32,7 @@ public class DefaultPrincipalBuilder implements PrincipalBuilder {
 
     public Principal buildPrincipal(TransportLayer transportLayer, Authenticator authenticator) throws KafkaException {
         try {
-            return transportLayer.peerPrincipal();
+            return transportLayer.peerPrincipal();//note:通过 transportLayer 来设置 principal
         } catch (Exception e) {
             throw new KafkaException("Failed to build principal due to: ", e);
         }

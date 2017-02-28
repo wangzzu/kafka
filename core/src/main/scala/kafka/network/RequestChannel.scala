@@ -48,7 +48,7 @@ object RequestChannel extends Logging {
   }
 
   case class Session(principal: KafkaPrincipal, clientAddress: InetAddress) {
-    val sanitizedUser = QuotaId.sanitize(principal.getName)
+    val sanitizedUser = QuotaId.sanitize(principal.getName)//note: 通过 KafkaPrincipal 获取用户名
   }
 
   case class Request(processor: Int, connectionId: String, session: Session, private var buffer: ByteBuffer, startTimeMs: Long, securityProtocol: SecurityProtocol) {

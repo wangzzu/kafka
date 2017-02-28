@@ -21,6 +21,7 @@ package org.apache.kafka.common.network;
  * Transport layer for PLAINTEXT communication
  */
 
+//note: 对于 PLAINTEXT 连接的传输层
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -34,7 +35,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 public class PlaintextTransportLayer implements TransportLayer {
     private final SelectionKey key;
     private final SocketChannel socketChannel;
-    private final Principal principal = KafkaPrincipal.ANONYMOUS;
+    private final Principal principal = KafkaPrincipal.ANONYMOUS;//note:默认用户名为 anonymous
 
     public PlaintextTransportLayer(SelectionKey key) throws IOException {
         this.key = key;

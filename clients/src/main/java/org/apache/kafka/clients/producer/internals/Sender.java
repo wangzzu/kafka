@@ -54,6 +54,7 @@ import java.util.Map;
  * The background thread that handles the sending of produce requests to the Kafka cluster. This thread makes metadata
  * requests to renew its view of the cluster and then sends produce requests to the appropriate nodes.
  */
+//note: 用于处理发送请求的后台线程
 public class Sender implements Runnable {
 
     private static final Logger log = LoggerFactory.getLogger(Sender.class);
@@ -340,6 +341,7 @@ public class Sender implements Runnable {
     /**
      * Create a produce request from the given record batches
      */
+    //NOTE: 发送 produce 请求
     private void sendProduceRequest(long now, int destination, short acks, int timeout, List<RecordBatch> batches) {
         Map<TopicPartition, MemoryRecords> produceRecordsByPartition = new HashMap<>(batches.size());
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<>(batches.size());

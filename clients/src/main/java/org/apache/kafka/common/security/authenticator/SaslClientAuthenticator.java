@@ -106,7 +106,8 @@ public class SaslClientAuthenticator implements Authenticator {
             this.transportLayer = transportLayer;
             this.configs = configs;
 
-            setSaslState(handshakeRequestEnable ? SaslState.SEND_HANDSHAKE_REQUEST : SaslState.INITIAL);
+            setSaslState(handshakeRequestEnable ? SaslState.SEND_HANDSHAKE_REQUEST : SaslState.INITIAL);//note: 创建时,该值默认为 true
+            //note: 创建时,状态默认为 SEND_HANDSHAKE_REQUEST
 
             // determine client principal from subject.
             if (!subject.getPrincipals().isEmpty()) {
@@ -146,6 +147,7 @@ public class SaslClientAuthenticator implements Authenticator {
      * The messages are sent and received as size delimited bytes that consists of a 4 byte network-ordered size N
      * followed by N bytes representing the opaque payload.
      */
+    //NOTE: 认证,向 Server 端发送一个空 msg 来初始化认证过程
     public void authenticate() throws IOException {
         if (netOutBuffer != null && !flushNetOutBufferAndUpdateInterestOps())
             return;
@@ -158,14 +160,14 @@ public class SaslClientAuthenticator implements Authenticator {
                 String clientId = (String) configs.get(CommonClientConfigs.CLIENT_ID_CONFIG);
                 currentRequestHeader = new RequestHeader(ApiKeys.SASL_HANDSHAKE.id, clientId, correlationId++);
                 SaslHandshakeRequest handshakeRequest = new SaslHandshakeRequest(mechanism);
-                send(handshakeRequest.toSend(node, currentRequestHeader));
+                send(handshakeRequest.toSend(node, currentRequestHeader));//NOTE: 发送握手请求
                 setSaslState(SaslState.RECEIVE_HANDSHAKE_RESPONSE);
                 break;
             case RECEIVE_HANDSHAKE_RESPONSE:
                 byte[] responseBytes = receiveResponseOrToken();
                 if (responseBytes == null)
                     break;
-                else {
+                else {//note:如果已经握手成功
                     try {
                         handleKafkaResponse(currentRequestHeader, responseBytes);
                         currentRequestHeader = null;
@@ -173,11 +175,11 @@ public class SaslClientAuthenticator implements Authenticator {
                         setSaslState(SaslState.FAILED);
                         throw e;
                     }
-                    setSaslState(SaslState.INITIAL);
+                    setSaslState(SaslState.INITIAL);//note: 开始初始化连接
                     // Fall through and start SASL authentication using the configured client mechanism
                 }
             case INITIAL:
-                sendSaslToken(new byte[0], true);
+                sendSaslToken(new byte[0], true);//note: 发送空字节
                 setSaslState(SaslState.INTERMEDIATE);
                 break;
             case INTERMEDIATE:
@@ -265,7 +267,7 @@ public class SaslClientAuthenticator implements Authenticator {
     }
 
     private byte[] createSaslToken(final byte[] saslToken, boolean isInitial) throws SaslException {
-        if (saslToken == null)
+        if (saslToken == null)//note: new byte[0]并不等于 null
             throw new SaslException("Error authenticating with the Kafka Broker: received a `null` saslToken.");
 
         try {

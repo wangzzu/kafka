@@ -51,7 +51,7 @@ public class SaslChannelBuilder implements ChannelBuilder {
         this.mode = mode;
         this.loginType = loginType;
         this.securityProtocol = securityProtocol;
-        this.handshakeRequestEnable = handshakeRequestEnable;
+        this.handshakeRequestEnable = handshakeRequestEnable;//note: 默认为 true
         this.clientSaslMechanism = clientSaslMechanism;
     }
 
@@ -66,7 +66,7 @@ public class SaslChannelBuilder implements ChannelBuilder {
                 hasKerberos = clientSaslMechanism.equals(SaslConfigs.GSSAPI_MECHANISM);
             }
 
-            if (hasKerberos) {
+            if (hasKerberos) { //NOTE: kerberos机制
                 String defaultRealm;
                 try {
                     defaultRealm = JaasUtils.defaultKerberosRealm();
@@ -78,10 +78,10 @@ public class SaslChannelBuilder implements ChannelBuilder {
                 if (principalToLocalRules != null)
                     kerberosShortNamer = KerberosShortNamer.fromUnparsedRules(defaultRealm, principalToLocalRules);
             }
-            this.jaasConfig = JaasUtils.jaasConfig(loginType, configs);
+            this.jaasConfig = JaasUtils.jaasConfig(loginType, configs);//TODO: 读取 jaas 文件,这地方需要进行修改
             this.loginManager = LoginManager.acquireLoginManager(loginType, hasKerberos, configs, jaasConfig);
 
-            if (this.securityProtocol == SecurityProtocol.SASL_SSL) {
+            if (this.securityProtocol == SecurityProtocol.SASL_SSL) {//NOTE: sasl_ssl 情况
                 // Disable SSL client authentication as we are using SASL authentication
                 this.sslFactory = new SslFactory(mode, "none");
                 this.sslFactory.configure(configs);

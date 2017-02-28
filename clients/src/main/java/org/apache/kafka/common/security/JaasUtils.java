@@ -62,7 +62,7 @@ public class JaasUtils {
     }
 
     private static Configuration defaultJaasConfig(LoginType loginType) {
-        String jaasConfigFile = System.getProperty(JaasUtils.JAVA_LOGIN_CONFIG_PARAM);
+        String jaasConfigFile = System.getProperty(JaasUtils.JAVA_LOGIN_CONFIG_PARAM);//NOTE: 获取 jaas 文件
         if (jaasConfigFile == null) {
             LOG.debug("System property '" + JaasUtils.JAVA_LOGIN_CONFIG_PARAM + "' and Kafka SASL property '" +
                       SaslConfigs.SASL_JAAS_CONFIG + "' are not set, using default JAAS configuration.");

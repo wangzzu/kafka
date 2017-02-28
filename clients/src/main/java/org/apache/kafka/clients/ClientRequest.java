@@ -18,6 +18,7 @@ import org.apache.kafka.common.requests.RequestHeader;
 /**
  * A request being sent to the server. This holds both the network send as well as the client-level metadata.
  */
+//note:即将发送到 Server 的请求,它保存了网络和 client 级别的 meta
 public final class ClientRequest {
 
     private final String destination;
