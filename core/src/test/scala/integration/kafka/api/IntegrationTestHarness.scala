@@ -29,8 +29,6 @@ import kafka.integration.KafkaServerTestHarness
 import org.junit.{After, Before}
 
 import scala.collection.mutable.Buffer
-import scala.util.control.Breaks.{breakable, break}
-import java.util.ConcurrentModificationException
 
 /**
  * A helper class for writing integration tests that involve producers, consumers, and servers
@@ -49,15 +47,15 @@ trait IntegrationTestHarness extends KafkaServerTestHarness {
 
   override def generateConfigs() = {
     val cfgs = TestUtils.createBrokerConfigs(serverCount, zkConnect, interBrokerSecurityProtocol = Some(securityProtocol),
-      trustStoreFile = trustStoreFile, saslProperties = saslProperties)
+      trustStoreFile = trustStoreFile, saslProperties = serverSaslProperties)
     cfgs.foreach(_.putAll(serverConfig))
     cfgs.map(KafkaConfig.fromProps)
   }
 
   @Before
   override def setUp() {
-    val producerSecurityProps = TestUtils.producerSecurityConfigs(securityProtocol, trustStoreFile, saslProperties)
-    val consumerSecurityProps = TestUtils.consumerSecurityConfigs(securityProtocol, trustStoreFile, saslProperties)
+    val producerSecurityProps = TestUtils.producerSecurityConfigs(securityProtocol, trustStoreFile, clientSaslProperties)
+    val consumerSecurityProps = TestUtils.consumerSecurityConfigs(securityProtocol, trustStoreFile, clientSaslProperties)
     super.setUp()
     producerConfig.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, classOf[org.apache.kafka.common.serialization.ByteArraySerializer])
     producerConfig.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, classOf[org.apache.kafka.common.serialization.ByteArraySerializer])
@@ -83,7 +81,7 @@ trait IntegrationTestHarness extends KafkaServerTestHarness {
       TestUtils.createNewProducer(brokerList,
                                   securityProtocol = this.securityProtocol,
                                   trustStoreFile = this.trustStoreFile,
-                                  saslProperties = this.saslProperties,
+                                  saslProperties = this.clientSaslProperties,
                                   props = Some(producerConfig))
   }
   
@@ -91,7 +89,7 @@ trait IntegrationTestHarness extends KafkaServerTestHarness {
       TestUtils.createNewConsumer(brokerList,
                                   securityProtocol = this.securityProtocol,
                                   trustStoreFile = this.trustStoreFile,
-                                  saslProperties = this.saslProperties,
+                                  saslProperties = this.clientSaslProperties,
                                   props = Some(consumerConfig))
   }
 

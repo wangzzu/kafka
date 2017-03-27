@@ -17,8 +17,10 @@
 
 package kafka.coordinator
 
-import collection.mutable
+import collection.{Seq, mutable, immutable}
+
 import java.util.UUID
+
 import kafka.common.OffsetAndMetadata
 import kafka.utils.nonthreadsafe
 import org.apache.kafka.common.TopicPartition
@@ -157,8 +159,12 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
   def has(memberId: String) = members.contains(memberId)
   def get(memberId: String) = members(memberId)
 
+<<<<<<< HEAD
   //NOTE: 将该 member 加入 group 中,如果 group 中现在没有 member 那就将这个 member 设置该 group 的 leader
   def add(memberId: String, member: MemberMetadata) {
+=======
+  def add(member: MemberMetadata) {
+>>>>>>> origin/0.10.2
     if (members.isEmpty)
       this.protocolType = Some(member.protocolType)
 
@@ -167,8 +173,8 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
     assert(supportsProtocols(member.protocols))
 
     if (leaderId == null)
-      leaderId = memberId
-    members.put(memberId, member)
+      leaderId = member.memberId
+    members.put(member.memberId, member)
   }
 
   def remove(memberId: String) {
@@ -265,8 +271,14 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
     GroupOverview(groupId, protocolType.getOrElse(""))
   }
 
+  def initializeOffsets(offsets: collection.Map[TopicPartition, OffsetAndMetadata]) {
+     this.offsets ++= offsets
+  }
+
   def completePendingOffsetWrite(topicPartition: TopicPartition, offset: OffsetAndMetadata) {
-    offsets.put(topicPartition, offset)
+    if (pendingOffsetCommits.contains(topicPartition))
+      offsets.put(topicPartition, offset)
+
     pendingOffsetCommits.get(topicPartition) match {
       case Some(stagedOffset) if offset == stagedOffset => pendingOffsetCommits.remove(topicPartition)
       case _ =>
@@ -284,12 +296,20 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
     pendingOffsetCommits ++= offsets
   }
 
+  def removeOffsets(topicPartitions: Seq[TopicPartition]): immutable.Map[TopicPartition, OffsetAndMetadata] = {
+    topicPartitions.flatMap { topicPartition =>
+      pendingOffsetCommits.remove(topicPartition)
+      val removedOffset = offsets.remove(topicPartition)
+      removedOffset.map(topicPartition -> _)
+    }.toMap
+  }
+
   def removeExpiredOffsets(startMs: Long) = {
     val expiredOffsets = offsets.filter {
       case (topicPartition, offset) => offset.expireTimestamp < startMs && !pendingOffsetCommits.contains(topicPartition)
     }
     offsets --= expiredOffsets.keySet
-    expiredOffsets
+    expiredOffsets.toMap
   }
 
   def allOffsets = offsets.toMap

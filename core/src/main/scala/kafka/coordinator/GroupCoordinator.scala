@@ -434,7 +434,7 @@ class GroupCoordinator(val brokerId: Int,
     }
   }
 
-  def doCommitOffsets(group: GroupMetadata,
+  private def doCommitOffsets(group: GroupMetadata,
                       memberId: String,
                       generationId: Int,
                       offsetMetadata: immutable.Map[TopicPartition, OffsetAndMetadata],
@@ -466,23 +466,19 @@ class GroupCoordinator(val brokerId: Int,
     delayedOffsetStore.foreach(groupManager.store)
   }
 
-
   def handleFetchOffsets(groupId: String,
-                         partitions: Seq[TopicPartition]): Map[TopicPartition, OffsetFetchResponse.PartitionData] = {
-    if (!isActive.get) {
-      partitions.map { topicPartition =>
-        (topicPartition, new OffsetFetchResponse.PartitionData(OffsetFetchResponse.INVALID_OFFSET, "", Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code))}.toMap
-    } else if (!isCoordinatorForGroup(groupId)) {
+                         partitions: Option[Seq[TopicPartition]] = None): (Errors, Map[TopicPartition, OffsetFetchResponse.PartitionData]) = {
+    if (!isActive.get)
+      (Errors.GROUP_COORDINATOR_NOT_AVAILABLE, Map())
+    else if (!isCoordinatorForGroup(groupId)) {
       debug("Could not fetch offsets for group %s (not group coordinator).".format(groupId))
-      partitions.map { topicPartition =>
-        (topicPartition, new OffsetFetchResponse.PartitionData(OffsetFetchResponse.INVALID_OFFSET, "", Errors.NOT_COORDINATOR_FOR_GROUP.code))}.toMap
-    } else if (isCoordinatorLoadingInProgress(groupId)) {
-      partitions.map { topicPartition =>
-        (topicPartition, new OffsetFetchResponse.PartitionData(OffsetFetchResponse.INVALID_OFFSET, "", Errors.GROUP_LOAD_IN_PROGRESS.code))}.toMap
-    } else {
+      (Errors.NOT_COORDINATOR_FOR_GROUP, Map())
+    } else if (isCoordinatorLoadingInProgress(groupId))
+      (Errors.GROUP_LOAD_IN_PROGRESS, Map())
+    else {
       // return offsets blindly regardless the current group state since the group may be using
       // Kafka commit storage without automatic group management
-      groupManager.getOffsets(groupId, partitions)
+      (Errors.NONE, groupManager.getOffsets(groupId, partitions))
     }
   }
 
@@ -511,6 +507,10 @@ class GroupCoordinator(val brokerId: Int,
           }
       }
     }
+  }
+
+  def handleDeletedPartitions(topicPartitions: Seq[TopicPartition]) {
+    groupManager.cleanupGroupMetadata(Some(topicPartitions))
   }
 
   private def onGroupUnloaded(group: GroupMetadata) {
@@ -638,9 +638,15 @@ class GroupCoordinator(val brokerId: Int,
     val memberId = clientId + "-" + group.generateMemberIdSuffix//NOTE: 为客户端生成一个随机 id
     val member = new MemberMetadata(memberId, group.groupId, clientId, clientHost, rebalanceTimeoutMs,
       sessionTimeoutMs, protocolType, protocols)
+<<<<<<< HEAD
     member.awaitingJoinCallback = callback//NOTE: 回调函数传入
     group.add(member.memberId, member)//NOTE: 将 member 加入 group,若是 group 的第一个成员则设置为 leader
     maybePrepareRebalance(group)//NOTE: 进行 rebalance
+=======
+    member.awaitingJoinCallback = callback
+    group.add(member)
+    maybePrepareRebalance(group)
+>>>>>>> origin/0.10.2
     member
   }
 

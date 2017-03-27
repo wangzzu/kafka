@@ -158,9 +158,14 @@ public class SaslClientAuthenticator implements Authenticator {
                 // API_VERSIONS_REQUEST must be sent prior to sending SASL_HANDSHAKE_REQUEST to
                 // fetch supported versions.
                 String clientId = (String) configs.get(CommonClientConfigs.CLIENT_ID_CONFIG);
-                currentRequestHeader = new RequestHeader(ApiKeys.SASL_HANDSHAKE.id, clientId, correlationId++);
                 SaslHandshakeRequest handshakeRequest = new SaslHandshakeRequest(mechanism);
+<<<<<<< HEAD
                 send(handshakeRequest.toSend(node, currentRequestHeader));//NOTE: 发送握手请求
+=======
+                currentRequestHeader = new RequestHeader(ApiKeys.SASL_HANDSHAKE.id,
+                        handshakeRequest.version(), clientId, correlationId++);
+                send(handshakeRequest.toSend(node, currentRequestHeader));
+>>>>>>> origin/0.10.2
                 setSaslState(SaslState.RECEIVE_HANDSHAKE_RESPONSE);
                 break;
             case RECEIVE_HANDSHAKE_RESPONSE:

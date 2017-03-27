@@ -96,14 +96,29 @@ public class MemoryRecordsBuilder {
     private final int writeLimit;
     private final int initialCapacity;
 
-    private MemoryRecords builtRecords;
-    private long writtenUncompressed;
-    private long numRecords;
-    private float compressionRate;
-    private long maxTimestamp;
-    private long offsetOfMaxTimestamp;
+    private long writtenUncompressed = 0;
+    private long numRecords = 0;
+    private float compressionRate = 1;
+    private long maxTimestamp = Record.NO_TIMESTAMP;
+    private long offsetOfMaxTimestamp = -1;
     private long lastOffset = -1;
 
+    private MemoryRecords builtRecords;
+
+    /**
+     * Construct a new builder.
+     *
+     * @param buffer The underlying buffer to use (note that this class will allocate a new buffer if necessary
+     *               to fit the records appended)
+     * @param magic The magic value to use
+     * @param compressionType The compression codec to use
+     * @param timestampType The desired timestamp type. For magic > 0, this cannot be {@link TimestampType#NO_TIMESTAMP_TYPE}.
+     * @param baseOffset The initial offset to use for
+     * @param logAppendTime The log append time of this record set. Can be set to NO_TIMESTAMP if CREATE_TIME is used.
+     * @param writeLimit The desired limit on the total bytes for this record set (note that this can be exceeded
+     *                   when compression is used since size estimates are rough, and in the case that the first
+     *                   record added exceeds the size).
+     */
     public MemoryRecordsBuilder(ByteBuffer buffer,
                                 byte magic,
                                 CompressionType compressionType,
@@ -117,10 +132,6 @@ public class MemoryRecordsBuilder {
         this.baseOffset = baseOffset;
         this.logAppendTime = logAppendTime;
         this.initPos = buffer.position();
-        this.numRecords = 0;
-        this.writtenUncompressed = 0;
-        this.compressionRate = 1;
-        this.maxTimestamp = Record.NO_TIMESTAMP;
         this.writeLimit = writeLimit;
         this.initialCapacity = buffer.capacity();
 
@@ -376,7 +387,9 @@ public class MemoryRecordsBuilder {
     }
 
     public boolean isFull() {
-        return isClosed() || this.writeLimit <= estimatedBytesWritten();
+        // note that the write limit is respected only after the first record is added which ensures we can always
+        // create non-empty batches (this is used to disable batching when the producer's batch size is set to 0).
+        return isClosed() || (this.numRecords > 0 && this.writeLimit <= estimatedBytesWritten());
     }
 
     public int sizeInBytes() {
