@@ -85,6 +85,7 @@ final class InFlightRequests {
      * @param node Node in question
      * @return true iff we have no requests still being sent to the given node
      */
+    //note: 当前 node 是可以发送更多的请求
     public boolean canSendMore(String node) {
         Deque<NetworkClient.InFlightRequest> queue = requests.get(node);
         return queue == null || queue.isEmpty() ||

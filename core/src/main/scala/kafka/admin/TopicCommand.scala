@@ -88,6 +88,7 @@ object TopicCommand extends Logging {
       allTopics
   }
 
+  //note: 创建 topic
   def createTopic(zkUtils: ZkUtils, opts: TopicCommandOptions) {
     val topic = opts.options.valueOf(opts.topicOpt)
     val configs = parseTopicConfigsToBeAdded(opts)
@@ -95,10 +96,10 @@ object TopicCommand extends Logging {
     if (Topic.hasCollisionChars(topic))
       println("WARNING: Due to limitations in metric names, topics with a period ('.') or underscore ('_') could collide. To avoid issues it is best to use either, but not both.")
     try {
-      if (opts.options.has(opts.replicaAssignmentOpt)) {
+      if (opts.options.has(opts.replicaAssignmentOpt)) {//note: 指定 replica 的分配,直接向 zk 更新即可
         val assignment = parseReplicaAssignment(opts.options.valueOf(opts.replicaAssignmentOpt))
         AdminUtils.createOrUpdateTopicPartitionAssignmentPathInZK(zkUtils, topic, assignment, configs, update = false)
-      } else {
+      } else {//note: 未指定 replica 的分配,调用自动分配算法进行分配
         CommandLineUtils.checkRequiredArgs(opts.parser, opts.options, opts.partitionsOpt, opts.replicationFactorOpt)
         val partitions = opts.options.valueOf(opts.partitionsOpt).intValue
         val replicas = opts.options.valueOf(opts.replicationFactorOpt).intValue
@@ -112,6 +113,7 @@ object TopicCommand extends Logging {
     }
   }
 
+  //note: 增加配置信息或者增加 topic 的 partition 数
   def alterTopic(zkUtils: ZkUtils, opts: TopicCommandOptions) {
     val topics = getTopics(zkUtils, opts)
     val ifExists = opts.options.has(opts.ifExistsOpt)
@@ -121,6 +123,7 @@ object TopicCommand extends Logging {
     }
     topics.foreach { topic =>
       val configs = AdminUtils.fetchEntityConfig(zkUtils, ConfigType.Topic, topic)
+      //note: 修改相关配置信息,如果配置 delete-config 的话就是删除该配置,否则就是添加该配置
       if(opts.options.has(opts.configOpt) || opts.options.has(opts.deleteConfigOpt)) {
         println("WARNING: Altering topic configuration from this script has been deprecated and may be removed in future releases.")
         println("         Going forward, please use kafka-configs.sh for this functionality")
@@ -134,15 +137,15 @@ object TopicCommand extends Logging {
         println("Updated config for topic \"%s\".".format(topic))
       }
 
-      if(opts.options.has(opts.partitionsOpt)) {
-        if (topic == Topic.GroupMetadataTopicName) {
+      if(opts.options.has(opts.partitionsOpt)) { //note: topic 增加 partition
+        if (topic == Topic.GroupMetadataTopicName) { //note: __consumer_offsets 的分区不能修改
           throw new IllegalArgumentException("The number of partitions for the offsets topic cannot be changed.")
         }
         println("WARNING: If partitions are increased for a topic that has a key, the partition " +
           "logic or ordering of the messages will be affected")
-        val nPartitions = opts.options.valueOf(opts.partitionsOpt).intValue
-        val replicaAssignmentStr = opts.options.valueOf(opts.replicaAssignmentOpt)
-        AdminUtils.addPartitions(zkUtils, topic, nPartitions, replicaAssignmentStr)
+        val nPartitions = opts.options.valueOf(opts.partitionsOpt).intValue //note: 设置的 partition 数
+        val replicaAssignmentStr = opts.options.valueOf(opts.replicaAssignmentOpt) //note: 副本分布的设置
+        AdminUtils.addPartitions(zkUtils, topic, nPartitions, replicaAssignmentStr)   //note: 增加 partition 数
         println("Adding partitions succeeded!")
       }
     }
@@ -260,10 +263,10 @@ object TopicCommand extends Logging {
     for (i <- 0 until partitionList.size) {
       val brokerList = partitionList(i).split(":").map(s => s.trim().toInt)
       val duplicateBrokers = CoreUtils.duplicates(brokerList)
-      if (duplicateBrokers.nonEmpty)
+      if (duplicateBrokers.nonEmpty)//note: replicas 指定 broker.id 不能相同
         throw new AdminCommandFailedException("Partition replica lists may not contain duplicate entries: %s".format(duplicateBrokers.mkString(",")))
       ret.put(i, brokerList.toList)
-      if (ret(i).size != ret(0).size)
+      if (ret(i).size != ret(0).size)//note: 同一个 topic 的副本数必须相同
         throw new AdminOperationException("Partition " + i + " has different replication factor: " + brokerList)
     }
     ret.toMap

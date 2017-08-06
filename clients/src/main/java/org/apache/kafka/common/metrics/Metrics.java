@@ -3,9 +3,9 @@
  * file distributed with this work for additional information regarding copyright ownership. The ASF licenses this file
  * to You under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
  * License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
  * specific language governing permissions and limitations under the License.
@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit;
  * that are recorded by the sensor.
  * <p>
  * Usage looks something like this:
- * 
+ *
  * <pre>
  * // set up metrics:
  * Metrics metrics = new Metrics(); // this is the global repository of metrics and sensors
@@ -49,7 +49,7 @@ import java.util.concurrent.TimeUnit;
  * sensor.add(metricName, new Avg());
  * metricName = new MetricName(&quot;message-size-max&quot;, &quot;producer-metrics&quot;);
  * sensor.add(metricName, new Max());
- * 
+ *
  * // as messages are sent we record the sizes
  * sensor.record(messageSize);
  * </pre>
@@ -128,7 +128,7 @@ public class Metrics implements Closeable {
             reporter.init(new ArrayList<KafkaMetric>());
 
         // Create the ThreadPoolExecutor only if expiration of Sensors is enabled.
-        if (enableExpiration) {
+        if (enableExpiration) { //note: 默认为 false
             this.metricsScheduler = new ScheduledThreadPoolExecutor(1);
             // Creating a daemon thread to not block shutdown
             this.metricsScheduler.setThreadFactory(new ThreadFactory() {
@@ -145,7 +145,7 @@ public class Metrics implements Closeable {
             new Measurable() {
                 @Override
                 public double measure(MetricConfig config, long now) {
-                    return metrics.size();
+                    return metrics.size();//note: metrics 的 size
                 }
             });
     }
@@ -160,7 +160,7 @@ public class Metrics implements Closeable {
      * @param tags        additional key/value attributes of the metric
      */
     public MetricName metricName(String name, String group, String description, Map<String, String> tags) {
-        Map<String, String> combinedTag = new LinkedHashMap<>(config.tags());
+        Map<String, String> combinedTag = new LinkedHashMap<>(config.tags()); //note: 默认的 tag
         combinedTag.putAll(tags);
         return new MetricName(name, group, description, combinedTag);
     }
@@ -174,7 +174,7 @@ public class Metrics implements Closeable {
      * @param description A human-readable description to include in the metric
      */
     public MetricName metricName(String name, String group, String description) {
-        return metricName(name, group, description, new HashMap<String, String>());
+        return metricName(name, group, description, new HashMap<String, String>());//note: 使用默认 tag 创建这个 metrics
     }
 
     /**

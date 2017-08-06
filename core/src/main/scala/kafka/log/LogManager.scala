@@ -446,6 +446,7 @@ class LogManager(val logDirs: Array[File],
    * by calculating the number of partitions in each directory and then choosing the
    * data directory with the fewest partitions.
    */
+  //note: 选择 partition 数最少的那个 logDir
   private def nextLogDir(): File = {
     if(logDirs.size == 1) {
       logDirs(0)

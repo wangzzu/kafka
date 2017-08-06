@@ -761,6 +761,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                           replicationFactor: Int,
                           properties: Properties = new Properties()): MetadataResponse.TopicMetadata = {
     try {
+      //note: 还是调用 AdminUtils 命令创建 topic
       AdminUtils.createTopic(zkUtils, topic, numPartitions, replicationFactor, properties, RackAwareMode.Safe)
       info("Auto creation of topic %s with %d partitions and replication factor %d is successful"
         .format(topic, numPartitions, replicationFactor))
@@ -792,16 +793,17 @@ class KafkaApis(val requestChannel: RequestChannel,
     topicMetadata.headOption.getOrElse(createGroupMetadataTopic())
   }
 
+  //note: 获取 topic 的 metadata 信息
   private def getTopicMetadata(topics: Set[String], listenerName: ListenerName, errorUnavailableEndpoints: Boolean): Seq[MetadataResponse.TopicMetadata] = {
     val topicResponses = metadataCache.getTopicMetadata(topics, listenerName, errorUnavailableEndpoints)
     if (topics.isEmpty || topicResponses.size == topics.size) {
       topicResponses
     } else {
-      val nonExistentTopics = topics -- topicResponses.map(_.topic).toSet
+      val nonExistentTopics = topics -- topicResponses.map(_.topic).toSet//note: 集群上暂时不存在的 topic 列表
       val responsesForNonExistentTopics = nonExistentTopics.map { topic =>
         if (topic == Topic.GroupMetadataTopicName) {
           createGroupMetadataTopic()
-        } else if (config.autoCreateTopicsEnable) {
+        } else if (config.autoCreateTopicsEnable) {//note: auto.create.topics.enable 为 true 时,即允许自动创建 topic
           createTopic(topic, config.numPartitions, config.defaultReplicationFactor)
         } else {
           new MetadataResponse.TopicMetadata(Errors.UNKNOWN_TOPIC_OR_PARTITION, topic, false,
@@ -819,6 +821,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     val metadataRequest = request.body.asInstanceOf[MetadataRequest]
     val requestVersion = request.header.apiVersion()
 
+    //note: 要获取 meta 的 topic 列表
     val topics =
       // Handle old metadata request logic. Version 0 has no way to specify "no topics".
       //NOTE: 为了兼容0.10.0之前的版本,如果 version 为0,就不会返回 controller 的信息
@@ -834,10 +837,12 @@ class KafkaApis(val requestChannel: RequestChannel,
           metadataRequest.topics.asScala.toSet
       }
 
+    //note: 判断对这些 topic 是否有 Describe 权限,将 topic 分为有无权限两类
     var (authorizedTopics, unauthorizedForDescribeTopics) =
       topics.partition(topic => authorize(request.session, Describe, new Resource(auth.Topic, topic)))
 
-    var unauthorizedForCreateTopics = Set[String]()
+    var unauthorizedForCreateTopics = Set[String]() //note: 没有 create 权限的 topic
+
 
     if (authorizedTopics.nonEmpty) {
       val nonExistingTopics = metadataCache.getNonExistingTopics(authorizedTopics)
@@ -851,7 +856,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     val unauthorizedForCreateTopicMetadata = unauthorizedForCreateTopics.map(topic =>
       new MetadataResponse.TopicMetadata(Errors.TOPIC_AUTHORIZATION_FAILED, topic, Topic.isInternal(topic),
-        java.util.Collections.emptyList()))
+        java.util.Collections.emptyList()))//note: 内置 topic 是无法创建的
 
     // do not disclose the existence of topics unauthorized for Describe, so we've not even checked if they exist or not
     val unauthorizedForDescribeTopicMetadata =
@@ -865,6 +870,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     // In version 0, we returned an error when brokers with replicas were unavailable,
     // while in higher versions we simply don't include the broker in the returned broker list
     val errorUnavailableEndpoints = requestVersion == 0
+    //note: 获取 topic 的 meta 信息
     val topicMetadata =
       if (authorizedTopics.isEmpty)
         Seq.empty[MetadataResponse.TopicMetadata]

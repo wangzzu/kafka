@@ -36,6 +36,7 @@ package org.apache.kafka.clients.producer;
  * In either of the cases above, the timestamp that has actually been used will be returned to user in
  * {@link RecordMetadata}
  */
+//note: 发往 Kafka 集群的 k/v 对（如果 partition 指明的话,就发往这个 topic 的 partition,否则就按对 key hash 值,再否则就按 round-robin 算法）
 public class ProducerRecord<K, V> {
 
     private final String topic;

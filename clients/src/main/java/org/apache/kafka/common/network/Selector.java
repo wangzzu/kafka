@@ -732,6 +732,7 @@ public class Selector implements Selectable {
             return sensor;
         }
 
+        //note: 与 node 相关的 metrics 信息
         public void maybeRegisterConnectionMetrics(String connectionId) {
             if (!connectionId.isEmpty() && metricsPerConnection) {
                 // if one sensor of the metrics has been registered for the connection,
@@ -739,10 +740,10 @@ public class Selector implements Selectable {
                 String nodeRequestName = "node-" + connectionId + ".bytes-sent";
                 Sensor nodeRequest = this.metrics.getSensor(nodeRequestName);
                 if (nodeRequest == null) {
-                    String metricGrpName = metricGrpPrefix + "-node-metrics";
+                    String metricGrpName = metricGrpPrefix + "-node-metrics"; //note: producer-node-metrics
 
                     Map<String, String> tags = new LinkedHashMap<>(metricTags);
-                    tags.put("node-id", "node-" + connectionId);
+                    tags.put("node-id", "node-" + connectionId); //note: 不同的连接
 
                     nodeRequest = sensor(nodeRequestName);
                     MetricName metricName = metrics.metricName("outgoing-byte-rate", metricGrpName, tags);

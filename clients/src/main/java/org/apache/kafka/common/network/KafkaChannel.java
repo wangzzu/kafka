@@ -108,6 +108,7 @@ public class KafkaChannel {
         return muted;
     }
 
+    //note: 握手成功并且 channel 权限认证通过
     public boolean ready() {
         return transportLayer.ready() && authenticator.complete();
     }

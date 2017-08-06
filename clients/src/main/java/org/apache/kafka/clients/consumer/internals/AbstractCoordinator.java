@@ -57,6 +57,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.common.errors.InterruptException;
 
+import sun.plugin2.main.server.HeartbeatThread;
+
 /**
  * AbstractCoordinator implements group management for a single group member by interacting with
  * a designated Kafka broker (the coordinator). Group semantics are provided by extending this class.
@@ -204,19 +206,10 @@ public abstract class AbstractCoordinator implements Closeable {
         long remainingMs = timeoutMs;
 
         while (coordinatorUnknown()) {
-<<<<<<< HEAD
             RequestFuture<Void> future = lookupCoordinator();//NOTE:  获取 GroupCoordinator,并建立连接
-            client.poll(future);
-
-            if (future.failed()) {//NOTE: 如果获取的过程中失败了
-                if (future.isRetriable())
-                    client.awaitMetadataUpdate();
-                else
-=======
-            RequestFuture<Void> future = lookupCoordinator();
             client.poll(future, remainingMs);
 
-            if (future.failed()) {
+            if (future.failed()) {//NOTE: 如果获取的过程中失败了
                 if (future.isRetriable()) {
                     remainingMs = timeoutMs - (time.milliseconds() - startTimeMs);
                     if (remainingMs <= 0)
@@ -225,7 +218,6 @@ public abstract class AbstractCoordinator implements Closeable {
                     log.debug("Coordinator discovery failed for group {}, refreshing metadata", groupId);
                     client.awaitMetadataUpdate(remainingMs);
                 } else
->>>>>>> origin/0.10.2
                     throw future.exception();
             } else if (coordinator != null && client.connectionFailed(coordinator)) {
                 // we found the coordinator, but the connection has failed, so mark
@@ -522,28 +514,18 @@ public abstract class AbstractCoordinator implements Closeable {
             Map<String, ByteBuffer> groupAssignment = performAssignment(joinResponse.leaderId(), joinResponse.groupProtocol(),
                     joinResponse.members());//NOTE: 进行 assign 操作
 
-<<<<<<< HEAD
-            SyncGroupRequest request = new SyncGroupRequest(groupId, generation.generationId, generation.memberId, groupAssignment);
-            log.debug("Sending leader SyncGroup for group {} to coordinator {}: {}", groupId, this.coordinator, request);
-            return sendSyncGroupRequest(request);//NOTE: 发送 sync-group 请求
-=======
             SyncGroupRequest.Builder requestBuilder =
                     new SyncGroupRequest.Builder(groupId, generation.generationId, generation.memberId, groupAssignment);
             log.debug("Sending leader SyncGroup for group {} to coordinator {}: {}",
                     groupId, this.coordinator, requestBuilder);
-            return sendSyncGroupRequest(requestBuilder);
->>>>>>> origin/0.10.2
+            return sendSyncGroupRequest(requestBuilder);//NOTE: 发送 sync-group 请求
         } catch (RuntimeException e) {
             return RequestFuture.failure(e);
         }
     }
 
-<<<<<<< HEAD
     //NOTE: 发送 SyncGroup 请求,获取对 partition 分配的安排
-    private RequestFuture<ByteBuffer> sendSyncGroupRequest(SyncGroupRequest request) {
-=======
     private RequestFuture<ByteBuffer> sendSyncGroupRequest(SyncGroupRequest.Builder requestBuilder) {
->>>>>>> origin/0.10.2
         if (coordinatorUnknown())
             return RequestFuture.coordinatorNotAvailable();
         return client.send(coordinator, requestBuilder)
@@ -778,17 +760,11 @@ public abstract class AbstractCoordinator implements Closeable {
                 log.debug("Received successful Heartbeat response for group {}", groupId);
                 future.complete(null);
             } else if (error == Errors.GROUP_COORDINATOR_NOT_AVAILABLE
-<<<<<<< HEAD
                     || error == Errors.NOT_COORDINATOR_FOR_GROUP) {//NOTE: GroupCoordinator 是无效的
                 log.debug("Attempt to heart beat failed for group {} since coordinator {} is either not started or not valid.",
-=======
-                    || error == Errors.NOT_COORDINATOR_FOR_GROUP) {
-                log.debug("Attempt to heartbeat failed for group {} since coordinator {} is either not started or not valid.",
->>>>>>> origin/0.10.2
                         groupId, coordinator());
                 coordinatorDead();//NOTE: 把 Consumer 标记为 dead
                 future.raise(error);
-<<<<<<< HEAD
             } else if (error == Errors.REBALANCE_IN_PROGRESS) {//NOTE: group 正在进行 rebalance
                 log.debug("Attempt to heart beat failed for group {} since it is rebalancing.", groupId);
                 requestRejoin();//NOTE: 需要重新进行 rejoin
@@ -800,19 +776,6 @@ public abstract class AbstractCoordinator implements Closeable {
             } else if (error == Errors.UNKNOWN_MEMBER_ID) {//NOTE: member id 不合法
                 log.debug("Attempt to heart beat failed for group {} since member id is not valid.", groupId);
                 resetGeneration();//NOTE: 同上
-=======
-            } else if (error == Errors.REBALANCE_IN_PROGRESS) {
-                log.debug("Attempt to heartbeat failed for group {} since it is rebalancing.", groupId);
-                requestRejoin();
-                future.raise(Errors.REBALANCE_IN_PROGRESS);
-            } else if (error == Errors.ILLEGAL_GENERATION) {
-                log.debug("Attempt to heartbeat failed for group {} since generation id is not legal.", groupId);
-                resetGeneration();
-                future.raise(Errors.ILLEGAL_GENERATION);
-            } else if (error == Errors.UNKNOWN_MEMBER_ID) {
-                log.debug("Attempt to heartbeat failed for group {} since member id is not valid.", groupId);
-                resetGeneration();
->>>>>>> origin/0.10.2
                 future.raise(Errors.UNKNOWN_MEMBER_ID);
             } else if (error == Errors.GROUP_AUTHORIZATION_FAILED) {//NOTE: 无权限
                 future.raise(new GroupAuthorizationException(groupId));
@@ -902,13 +865,8 @@ public abstract class AbstractCoordinator implements Closeable {
                 lastHeartbeat);
         }
     }
-
-<<<<<<< HEAD
     //NOTE: Consumer 客户端的心跳线程
-    private class HeartbeatThread extends Thread {
-=======
     private class HeartbeatThread extends KafkaThread {
->>>>>>> origin/0.10.2
         private boolean enabled = false;
         private boolean closed = false;
         private AtomicReference<RuntimeException> failed = new AtomicReference<>(null);

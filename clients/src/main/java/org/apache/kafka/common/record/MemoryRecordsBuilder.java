@@ -33,6 +33,7 @@ import java.util.zip.GZIPOutputStream;
  * It transparently handles compression and exposes methods for appending new entries, possibly with message
  * format conversion.
  */
+//note: 这个类是用于在内存写新数据,它明显地处理数据压缩、暴露追加数据的方法,可能还会处理格式转换
 public class MemoryRecordsBuilder {
 
     static private final float COMPRESSION_RATE_DAMPING_FACTOR = 0.9f;
@@ -228,6 +229,7 @@ public class MemoryRecordsBuilder {
      * @param value The record value
      * @return crc of the record
      */
+    //note: 向指定 offset 位置追加数据
     public long appendWithOffset(long offset, long timestamp, byte[] key, byte[] value) {
         try {
             if (lastOffset >= 0 && offset <= lastOffset)
@@ -239,6 +241,7 @@ public class MemoryRecordsBuilder {
             if (timestampType == TimestampType.LOG_APPEND_TIME)
                 timestamp = logAppendTime;
             long crc = Record.write(appendStream, magic, timestamp, key, value, CompressionType.NONE, timestampType);
+            //note: 向 buffer 中写数据
             recordWritten(offset, timestamp, size + Records.LOG_OVERHEAD);
             return crc;
         } catch (IOException e) {
@@ -254,6 +257,7 @@ public class MemoryRecordsBuilder {
      * @param value The record value
      * @return crc of the record
      */
+    //note: 添加一条 record
     public long append(long timestamp, byte[] key, byte[] value) {
         return appendWithOffset(lastOffset < 0 ? baseOffset : lastOffset + 1, timestamp, key, value);
     }
@@ -340,6 +344,7 @@ public class MemoryRecordsBuilder {
         return offset;
     }
 
+    //note: 一些数据的统计
     private void recordWritten(long offset, long timestamp, int size) {
         numRecords += 1;
         writtenUncompressed += size;
@@ -355,6 +360,7 @@ public class MemoryRecordsBuilder {
      * Get an estimate of the number of bytes written (based on the estimation factor hard-coded in {@link CompressionType}.
      * @return The estimated number of bytes written
      */
+    //note: 得到 buffer 中已经写入的数据大小
     private int estimatedBytesWritten() {
         if (compressionType == CompressionType.NONE) {
             return buffer().position();
@@ -376,6 +382,7 @@ public class MemoryRecordsBuilder {
      * the checking should be based on the capacity of the initialized buffer rather than the write limit in order
      * to accept this single record.
      */
+    //note: 检查是否有足够的空间对于指定 key 和 value
     public boolean hasRoomFor(byte[] key, byte[] value) {
         return !isFull() && (numRecords == 0 ?
                 this.initialCapacity >= Records.LOG_OVERHEAD + Record.recordSize(magic, key, value) :

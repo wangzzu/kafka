@@ -43,7 +43,9 @@ import java.util.Set;
  * is removed from the metadata refresh set after an update. Consumers disable topic expiry since they explicitly
  * manage topics while producers rely on topic expiry to limit the refresh set.
  */
-//note: 这个类被 client 线程和后台 sender 所共享,它只保存了部分数据,当我们请一个它上面没有的 topic meta 时,会更新 meta 信息,或者超过一定时间,也会更新 meta 信息
+//note: 这个类被 client 线程和后台 sender 所共享,它只保存了所有 topic 的部分数据,当我们请求一个它上面没有的 topic meta 时,它会通过发送 metadata update 来更新 meta 信息,
+//note: 如果 topic meta 过期策略是允许的,那么任何 topic 过期的话都会被从集合中移除,
+//note: 但是 consumer 是不允许 topic 过期的因为它明确地知道它需要管理哪些 topic
 public final class Metadata {
 
     private static final Logger log = LoggerFactory.getLogger(Metadata.class);
@@ -51,19 +53,19 @@ public final class Metadata {
     public static final long TOPIC_EXPIRY_MS = 5 * 60 * 1000;
     private static final long TOPIC_EXPIRY_NEEDS_UPDATE = -1L;
 
-    private final long refreshBackoffMs;
-    private final long metadataExpireMs;
-    private int version;
-    private long lastRefreshMs;
-    private long lastSuccessfulRefreshMs;
-    private Cluster cluster;
-    private boolean needUpdate;
+    private final long refreshBackoffMs; //note: metadata 更新失败时,为避免频繁更新 meta,最小的间隔时间,默认 100ms
+    private final long metadataExpireMs; //note: metadata 的过期时间, 默认 60,000ms
+    private int version; //note: 每更新成功1次，version自增1,主要是用于判断 metadata 是否更新
+    private long lastRefreshMs; //note: 最近一次更新时的时间（包含更新失败的情况）
+    private long lastSuccessfulRefreshMs; //note: 最近一次成功更新的时间（如果每次都成功的话，与前面的值相等, 否则，lastSuccessulRefreshMs < lastRefreshMs)
+    private Cluster cluster; //note: 集群中一些 topic 的信息
+    private boolean needUpdate; //note: 是都需要更新 metadata
     /* Topics with expiry time */
-    private final Map<String, Long> topics;
-    private final List<Listener> listeners;
-    private final ClusterResourceListeners clusterResourceListeners;
-    private boolean needMetadataForAllTopics;
-    private final boolean topicExpiryEnabled;
+    private final Map<String, Long> topics; //note: topic 与其过期时间的对应关系
+    private final List<Listener> listeners; //note: 事件监控者
+    private final ClusterResourceListeners clusterResourceListeners; //note: 当接收到 metadata 更新时, ClusterResourceListeners的列表
+    private boolean needMetadataForAllTopics; //note: 是否强制更新所有的 metadata
+    private final boolean topicExpiryEnabled; //note: 默认为 true, Producer 会定时移除过期的 topic,consumer 则不会移除
 
     /**
      * Create a metadata instance with reasonable defaults
@@ -110,6 +112,7 @@ public final class Metadata {
      * Add the topic to maintain in the metadata. If topic expiry is enabled, expiry time
      * will be reset on the next update.
      */
+    //note: 添加 topic 后会请求更新新 topic 的 meta 信息（过期时间会在下次更新进行重置）
     public synchronized void add(String topic) {
         if (topics.put(topic, TOPIC_EXPIRY_NEEDS_UPDATE) == null) {
             requestUpdateForNewTopics();
@@ -121,9 +124,11 @@ public final class Metadata {
      * current info can be updated (i.e. backoff time has elapsed); If an update has been request then the expiry time
      * is now
      */
+    //note: 下次更新 metadata 的时间
     public synchronized long timeToNextUpdate(long nowMs) {
+        //note: 判断是强制更新还是 metadata 过期了需要更新,前者是立马更新,后者是计算 metadata 的过期时间
         long timeToExpire = needUpdate ? 0 : Math.max(this.lastSuccessfulRefreshMs + this.metadataExpireMs - nowMs, 0);
-        long timeToAllowUpdate = this.lastRefreshMs + this.refreshBackoffMs - nowMs;
+        long timeToAllowUpdate = this.lastRefreshMs + this.refreshBackoffMs - nowMs;//note: 防止频繁更新 meta
         return Math.max(timeToExpire, timeToAllowUpdate);
     }
 
@@ -156,9 +161,9 @@ public final class Metadata {
         long remainingWaitMs = maxWaitMs;
         while (this.version <= lastVersion) {//note:不断循环,直到 metadata 更新成功,version 自增
             if (remainingWaitMs != 0)
-                wait(remainingWaitMs);//note:线程的 wait 机制，wait 和 synchronized 的配合使用
+                wait(remainingWaitMs);//note: 线程的 wait 机制，wait 和 synchronized 的配合使用
             long elapsed = System.currentTimeMillis() - begin;
-            if (elapsed >= maxWaitMs)//note:wait 时间超出了最长等待时间
+            if (elapsed >= maxWaitMs)//note: wait 时间超出了最长等待时间
                 throw new TimeoutException("Failed to update metadata after " + maxWaitMs + " ms.");
             remainingWaitMs = maxWaitMs - elapsed;
         }
@@ -199,11 +204,12 @@ public final class Metadata {
      * Updates the cluster metadata. If topic expiry is enabled, expiry time
      * is set for topics if required and expired topics are removed from the metadata.
      */
-    //note: 更新集群的 metadata
+    //note: 更新集群的 metadata（如果允许 topic 过期的话,过期的 topic 就会从 metadata 中移除）
+    //note: producer 和 consumer 在初始化时,都会初始化 meta 信息（但初始化时,cluster 的内容基本为空）
     public synchronized void update(Cluster cluster, long now) {
         Objects.requireNonNull(cluster, "cluster should not be null");
 
-        this.needUpdate = false;
+        this.needUpdate = false; //note: 从 true 改为 false,开始更新 metadata
         this.lastRefreshMs = now;
         this.lastSuccessfulRefreshMs = now;
         this.version += 1;
@@ -232,7 +238,7 @@ public final class Metadata {
             // If we have already fetched all topics, however, another fetch should be unnecessary.
             this.needUpdate = false;
             this.cluster = getClusterForCurrentTopics(cluster);
-        } else {
+        } else { //note: 默认为 false
             this.cluster = cluster;
         }
 

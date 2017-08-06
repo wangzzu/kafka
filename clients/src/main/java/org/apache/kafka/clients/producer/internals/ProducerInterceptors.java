@@ -32,6 +32,7 @@ import java.util.List;
  * A container that holds the list {@link org.apache.kafka.clients.producer.ProducerInterceptor}
  * and wraps calls to the chain of custom interceptors.
  */
+//note: 一种插件用于在发送到 Kafka 集群之前拦截或者转换 producer 接收的 record
 public class ProducerInterceptors<K, V> implements Closeable {
     private static final Logger log = LoggerFactory.getLogger(ProducerInterceptors.class);
     private final List<ProducerInterceptor<K, V>> interceptors;
@@ -54,11 +55,12 @@ public class ProducerInterceptors<K, V> implements Closeable {
      * @param record the record from client
      * @return producer record to send to topic/partition
      */
+    //note:当 client 发送 record 给 producer 时这个方法会被调用（在 key、value 序列化前）,interceptor 依次去处理这个 record
     public ProducerRecord<K, V> onSend(ProducerRecord<K, V> record) {
         ProducerRecord<K, V> interceptRecord = record;
         for (ProducerInterceptor<K, V> interceptor : this.interceptors) {
             try {
-                interceptRecord = interceptor.onSend(interceptRecord);
+                interceptRecord = interceptor.onSend(interceptRecord);//note: interceptors 依次处理
             } catch (Exception e) {
                 // do not propagate interceptor exception, log and continue calling other interceptors
                 // be careful not to throw exception from here
@@ -82,6 +84,7 @@ public class ProducerInterceptors<K, V> implements Closeable {
      *                 If an error occurred, metadata will only contain valid topic and maybe partition.
      * @param exception The exception thrown during processing of this record. Null if no error occurred.
      */
+    //note: 这个方法将调用当 record 发送 server 成功或者失败时
     public void onAcknowledgement(RecordMetadata metadata, Exception exception) {
         for (ProducerInterceptor<K, V> interceptor : this.interceptors) {
             try {
@@ -103,6 +106,7 @@ public class ProducerInterceptors<K, V> implements Closeable {
      *        after partition gets assigned; the topic part of interceptTopicPartition is the same as in record.
      * @param exception The exception thrown during processing of this record.
      */
+    //note: 当调用 onSend 方法失败时将被调用
     public void onSendError(ProducerRecord<K, V> record, TopicPartition interceptTopicPartition, Exception exception) {
         for (ProducerInterceptor<K, V> interceptor : this.interceptors) {
             try {

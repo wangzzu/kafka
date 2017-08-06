@@ -60,6 +60,7 @@ class AdminManager(val config: KafkaConfig,
     * Create topics and wait until the topics have been completely created.
     * The callback function will be triggered either when timeout, error or the topics are created.
     */
+  //note: 创建 topic
   def createTopics(timeout: Int,
                    validateOnly: Boolean,
                    createInfo: Map[String, TopicDetails],

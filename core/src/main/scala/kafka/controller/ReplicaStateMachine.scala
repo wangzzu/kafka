@@ -103,6 +103,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
    * @param targetState  The state that the replicas should be moved to
    * The controller's allLeaders cache should have been updated before this
    */
+  //note: 由 KafkaController 调用,主要用于处理 Replica 状态的变化
   def handleStateChanges(replicas: Set[PartitionAndReplica], targetState: ReplicaState,
                          callbacks: Callbacks = (new CallbackBuilder).build) {
     if(replicas.nonEmpty) {
@@ -152,6 +153,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
    * @param partitionAndReplica The replica for which the state transition is invoked
    * @param targetState The end state that the replica should be moved to
    */
+  //note: 处理 Replica 状态变化的方法
   def handleStateChange(partitionAndReplica: PartitionAndReplica, targetState: ReplicaState,
                         callbacks: Callbacks) {
     val topic = partitionAndReplica.topic
@@ -162,25 +164,26 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
       throw new StateChangeFailedException(("Controller %d epoch %d initiated state change of replica %d for partition %s " +
                                             "to %s failed because replica state machine has not started")
                                               .format(controllerId, controller.epoch, replicaId, topicAndPartition, targetState))
-    val currState = replicaState.getOrElseUpdate(partitionAndReplica, NonExistentReplica)
+    val currState = replicaState.getOrElseUpdate(partitionAndReplica, NonExistentReplica)//note: Replica 不存在的话,状态初始化为 NonExistentReplica
     try {
       val replicaAssignment = controllerContext.partitionReplicaAssignment(topicAndPartition)
       targetState match {
         case NewReplica =>
-          assertValidPreviousStates(partitionAndReplica, List(NonExistentReplica), targetState)
+          assertValidPreviousStates(partitionAndReplica, List(NonExistentReplica), targetState)  //note: 验证
           // start replica as a follower to the current leader for its partition
           val leaderIsrAndControllerEpochOpt = ReplicationUtils.getLeaderIsrAndEpochForPartition(zkUtils, topic, partition)
           leaderIsrAndControllerEpochOpt match {
             case Some(leaderIsrAndControllerEpoch) =>
-              if(leaderIsrAndControllerEpoch.leaderAndIsr.leader == replicaId)
+              if(leaderIsrAndControllerEpoch.leaderAndIsr.leader == replicaId)//note: 这个状态的 Replica 不能作为 leader
                 throw new StateChangeFailedException("Replica %d for partition %s cannot be moved to NewReplica"
                   .format(replicaId, topicAndPartition) + "state as it is being requested to become leader")
+              //note: 向所有 replicaId 发送 LeaderAndIsr 请求,这个方法同时也会向所有的 broker 发送 updateMeta 请求
               brokerRequestBatch.addLeaderAndIsrRequestForBrokers(List(replicaId),
                                                                   topic, partition, leaderIsrAndControllerEpoch,
                                                                   replicaAssignment)
             case None => // new leader request will be sent to this replica when one gets elected
           }
-          replicaState.put(partitionAndReplica, NewReplica)
+          replicaState.put(partitionAndReplica, NewReplica)//note: 缓存这个 replica 对象的状态
           stateChangeLogger.trace("Controller %d epoch %d changed state of replica %d for partition %s from %s to %s"
                                     .format(controllerId, controller.epoch, replicaId, topicAndPartition, currState,
                                             targetState))
@@ -216,6 +219,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
           replicaState(partitionAndReplica) match {
             case NewReplica =>
               // add this replica to the assigned replicas list for its partition
+              //note: 向 the assigned replicas list 添加这个 replica（正常情况下这些 replicas 已经更新到 list 中了）
               val currentAssignedReplicas = controllerContext.partitionReplicaAssignment(topicAndPartition)
               if(!currentAssignedReplicas.contains(replicaId))
                 controllerContext.partitionReplicaAssignment.put(topicAndPartition, currentAssignedReplicas :+ replicaId)

@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 
  * This class is not thread safe and external synchronization must be used when modifying it
  */
+//note: record batch, 这个类不是线程安全的,当修改时,必须考虑加锁
 public final class RecordBatch {
 
     private static final Logger log = LoggerFactory.getLogger(RecordBatch.class);
@@ -68,9 +69,10 @@ public final class RecordBatch {
      * 
      * @return The RecordSend corresponding to this record or null if there isn't sufficient room.
      */
+    //note: 向当前的 record set 追加 record,并返回这个 record set 的相关 offset
     public FutureRecordMetadata tryAppend(long timestamp, byte[] key, byte[] value, Callback callback, long now) {
         if (!recordsBuilder.hasRoomFor(key, value)) {
-            return null;
+            return null;//note:  当前 batch 已经没有空间了
         } else {
             long checksum = this.recordsBuilder.append(timestamp, key, value);
             this.maxRecordSize = Math.max(this.maxRecordSize, Record.recordSize(key, value));

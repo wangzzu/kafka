@@ -27,17 +27,19 @@ import java.util.Set;
 /**
  * A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
  */
+//note: 并不是一个全集,metadata的主要组成部分
 public final class Cluster {
 
+    //note: 从命名直接就看出了各个变量的用途
     private final boolean isBootstrapConfigured;
-    private final List<Node> nodes;
-    private final Set<String> unauthorizedTopics;
-    private final Set<String> internalTopics;
-    private final Map<TopicPartition, PartitionInfo> partitionsByTopicPartition;
-    private final Map<String, List<PartitionInfo>> partitionsByTopic;
-    private final Map<String, List<PartitionInfo>> availablePartitionsByTopic;
-    private final Map<Integer, List<PartitionInfo>> partitionsByNode;
-    private final Map<Integer, Node> nodesById;
+    private final List<Node> nodes; //note: node 列表
+    private final Set<String> unauthorizedTopics; //note: 未认证的 topic 列表
+    private final Set<String> internalTopics; //note: 内置的 topic 列表
+    private final Map<TopicPartition, PartitionInfo> partitionsByTopicPartition; //note: partition 的详细信息
+    private final Map<String, List<PartitionInfo>> partitionsByTopic; //note: topic 与 partition 的对应关系
+    private final Map<String, List<PartitionInfo>> availablePartitionsByTopic; //note:  可用（leader 不为 null）的 topic 与 partition 的对应关系
+    private final Map<Integer, List<PartitionInfo>> partitionsByNode; //note: node 与 partition 的对应关系
+    private final Map<Integer, Node> nodesById; //note: node 与 id 的对应关系
     private final ClusterResource clusterResource;
 
     /**
@@ -73,8 +75,8 @@ public final class Cluster {
                     Collection<PartitionInfo> partitions,
                     Set<String> unauthorizedTopics,
                     Set<String> internalTopics) {
-        this.isBootstrapConfigured = isBootstrapConfigured;
-        this.clusterResource = new ClusterResource(clusterId);
+        this.isBootstrapConfigured = isBootstrapConfigured; //note: 默认为 false
+        this.clusterResource = new ClusterResource(clusterId); //note: 这个变量只记录了 cluster.id 的值
         // make a randomized, unmodifiable copy of the nodes
         List<Node> copy = new ArrayList<>(nodes);
         Collections.shuffle(copy);
@@ -116,7 +118,7 @@ public final class Cluster {
             List<PartitionInfo> availablePartitions = new ArrayList<>();
             for (PartitionInfo part : partitionList) {
                 if (part.leader() != null)
-                    availablePartitions.add(part);
+                    availablePartitions.add(part); //note: leader 不为 null,即为可用
             }
             this.availablePartitionsByTopic.put(topic, Collections.unmodifiableList(availablePartitions));
         }
@@ -143,7 +145,7 @@ public final class Cluster {
      */
     public static Cluster bootstrap(List<InetSocketAddress> addresses) {
         List<Node> nodes = new ArrayList<>();
-        int nodeId = -1;
+        int nodeId = -1; //note: 给出的 broker.list 在这里,其 id 会被依次赋予-1,-2,-3...
         for (InetSocketAddress address : addresses)
             nodes.add(new Node(nodeId--, address.getHostString(), address.getPort()));
         return new Cluster(null, true, nodes, new ArrayList<PartitionInfo>(0), Collections.<String>emptySet(), Collections.<String>emptySet());

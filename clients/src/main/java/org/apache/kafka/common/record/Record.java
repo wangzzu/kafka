@@ -489,6 +489,7 @@ public final class Record {
      * @return the computed CRC for this record.
      * @throws IOException for any IO errors writing to the output stream.
      */
+    //note: 写 record 数据,并返回检验和
     public static long write(DataOutputStream out,
                              byte magic,
                              long timestamp,
@@ -528,6 +529,7 @@ public final class Record {
 
     // Write a record to the buffer, if the record's compression type is none, then
     // its value payload should be already compressed with the specified type
+    //note: 向 buffer 写数据
     private static void write(DataOutputStream out,
                               byte magic,
                               long crc,
@@ -599,6 +601,7 @@ public final class Record {
     /**
      * Compute the checksum of the record from the attributes, key and value payloads
      */
+    //note: 计算检验和
     private static long computeChecksum(byte magic, byte attributes, long timestamp, ByteBuffer key, ByteBuffer value) {
         Crc32 crc = new Crc32();
         crc.update(magic);

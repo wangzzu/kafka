@@ -19,6 +19,7 @@ import java.util.Map;
  * The state of our connection to each node in the cluster.
  * 
  */
+//note: 与集群中每个 node 的连接状态
 final class ClusterConnectionStates {
     private final long reconnectBackoffMs;
     private final Map<String, NodeConnectionState> nodeState;
@@ -29,7 +30,7 @@ final class ClusterConnectionStates {
     }
 
     /**
-     * Return true iff we can currently initiate a new connection. This will be the case if we are not
+     * Return true if we can currently initiate a new connection. This will be the case if we are not
      * connected and haven't been connected for at least the minimum reconnection backoff period.
      * @param id the connection id to check
      * @param now the current time in MS

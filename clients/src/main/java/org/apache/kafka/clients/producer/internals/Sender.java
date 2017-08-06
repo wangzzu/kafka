@@ -107,7 +107,7 @@ public class Sender implements Runnable {
         this.metadata = metadata;
         this.guaranteeMessageOrder = guaranteeMessageOrder;
         this.maxRequestSize = maxRequestSize;
-        this.running = true;
+        this.running = true; //note: 默认为 true
         this.acks = acks;
         this.retries = retries;
         this.time = time;
@@ -118,6 +118,7 @@ public class Sender implements Runnable {
     /**
      * The main run loop for the sender thread
      */
+    //note: 当可以发送数据,KafkaProducer 会唤起这个线程
     public void run() {
         log.debug("Starting Kafka producer I/O thread.");
 
@@ -162,12 +163,15 @@ public class Sender implements Runnable {
      * @param now
      *            The current POSIX time in milliseconds
      */
+    //note: Sender 线程每次循环具体执行的地方
     void run(long now) {
         Cluster cluster = metadata.fetch();
         // get the list of partitions with data ready to send
+        //note: 获取那些已经可以发送的 RecordBatch 对应的 nodes
         RecordAccumulator.ReadyCheckResult result = this.accumulator.ready(cluster, now);
 
         // if there are any partitions whose leaders are not known yet, force metadata update
+        //note: 如果有 topic-partition 的 leader 是未知的,就强制 metadata 更新
         if (!result.unknownLeaderTopics.isEmpty()) {
             // The set of topics with unknown leader contains topics with leader election pending as well as
             // topics which may have expired. Add the topic again to metadata to ensure it is included
@@ -178,6 +182,7 @@ public class Sender implements Runnable {
         }
 
         // remove any nodes we aren't ready to send to
+        //note: 如果与node 没有连接（如果可以连接,同时初始化该连接）,就证明该 node 暂时不能发送数据,暂时移除该 node
         Iterator<Node> iter = result.readyNodes.iterator();
         long notReadyTimeout = Long.MAX_VALUE;
         while (iter.hasNext()) {
@@ -189,18 +194,21 @@ public class Sender implements Runnable {
         }
 
         // create produce requests
+        //note: 返回该 node 对应的所有可以发送的 RecordBatch 组成的 batches（key 是 node.id）,并将 RecordBatch 从对应的 queue 中移除
         Map<Integer, List<RecordBatch>> batches = this.accumulator.drain(cluster,
                                                                          result.readyNodes,
                                                                          this.maxRequestSize,
                                                                          now);
         if (guaranteeMessageOrder) {
             // Mute all the partitions drained
+            //note: 记录将要发送的 RecordBatch
             for (List<RecordBatch> batchList : batches.values()) {
                 for (RecordBatch batch : batchList)
                     this.accumulator.mutePartition(batch.topicPartition);
             }
         }
 
+        //note: 将由于元数据不可用而导致发送超时的 RecordBatch 移除
         List<RecordBatch> expiredBatches = this.accumulator.abortExpiredBatches(this.requestTimeout, now);
         // update sensors
         for (RecordBatch expiredBatch : expiredBatches)
@@ -217,18 +225,20 @@ public class Sender implements Runnable {
             log.trace("Nodes with data ready to send: {}", result.readyNodes);
             pollTimeout = 0;
         }
+        //note: 发送 RecordBatch
         sendProduceRequests(batches, now);
 
         // if some partitions are already ready to be sent, the select time would be 0;
         // otherwise if some partition already has some data accumulated but not ready yet,
         // the select time will be the time difference between now and its linger expiry time;
         // otherwise the select time will be the time difference between now and the metadata expiry time;
-        this.client.poll(pollTimeout, now);
+        this.client.poll(pollTimeout, now); //note: 关于 socket 的一些实际的读写操作（其中包括 meta 信息的更新）
     }
 
     /**
      * Start closing the sender (won't actually complete until all data is sent out)
      */
+    //note: 关闭 sender 线程
     public void initiateClose() {
         // Ensure accumulator is closed first to guarantee that no more appends are accepted after
         // breaking from the sender loop. Otherwise, we may miss some callbacks when shutting down.

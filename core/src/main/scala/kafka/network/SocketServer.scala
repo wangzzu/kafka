@@ -265,7 +265,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
    * Accept loop that checks for new connection attempts
    */
   def run() {
-    serverChannel.register(nioSelector, SelectionKey.OP_ACCEPT)
+    serverChannel.register(nioSelector, SelectionKey.OP_ACCEPT)//note: 注册 accept 事件
     startupComplete()
     try {
       var currentProcessor = 0
@@ -280,10 +280,11 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
                 val key = iter.next
                 iter.remove()
                 if (key.isAcceptable)
-                  accept(key, processors(currentProcessor))
+                  accept(key, processors(currentProcessor))//note: 拿到一个socket 连接，轮询选择一个processor进行处理
                 else
                   throw new IllegalStateException("Unrecognized key state for acceptor thread.")
 
+                //note: 轮询算法,使用 round robin
                 // round robin to the next processor thread
                 currentProcessor = (currentProcessor + 1) % processors.length
               } catch {
@@ -335,6 +336,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
   /*
    * Accept a new connection
    */
+  //note: 一个新的连接
   def accept(key: SelectionKey, processor: Processor) {
     val serverSocketChannel = key.channel().asInstanceOf[ServerSocketChannel]
     val socketChannel = serverSocketChannel.accept()
@@ -426,9 +428,9 @@ private[kafka] class Processor(val id: Int,
     while (isRunning) {
       try {
         // setup any new connections that have been queued up
-        configureNewConnections()
+        configureNewConnections()//note: 配置新连接中 socket,并注册 READ 事件
         // register any new responses for writing
-        processNewResponses()
+        processNewResponses()//note: 处理 response 队列中 response
         poll()
         processCompletedReceives()
         processCompletedSends()
@@ -549,8 +551,8 @@ private[kafka] class Processor(val id: Int,
    * Queue up a new connection for reading
    */
   def accept(socketChannel: SocketChannel) {
-    newConnections.add(socketChannel)
-    wakeup()
+    newConnections.add(socketChannel)//note: 添加到队列中
+    wakeup()//note: 唤醒 Processor 的 selector
   }
 
   /**

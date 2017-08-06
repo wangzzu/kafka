@@ -15,6 +15,7 @@ package org.apache.kafka.common;
 /**
  * Information about a topic-partition.
  */
+//note: topic-partition: 包含 topic、partition、leader、replicas、isr
 public class PartitionInfo {
 
     private final String topic;

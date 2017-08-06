@@ -63,6 +63,7 @@ public class ChannelBuilders {
         return create(securityProtocol, Mode.SERVER, LoginType.SERVER, configs, null, true, credentialCache);
     }
 
+    //note: 根据安全机制选择对应的通道
     private static ChannelBuilder create(SecurityProtocol securityProtocol,
                                         Mode mode,
                                         LoginType loginType,
@@ -82,7 +83,7 @@ public class ChannelBuilders {
                 requireNonNullMode(mode, securityProtocol);
                 channelBuilder = new SaslChannelBuilder(mode, loginType, securityProtocol, clientSaslMechanism, saslHandshakeRequestEnable, credentialCache);
                 break;
-            case PLAINTEXT:
+            case PLAINTEXT://note: 默认,就是没有权限的机制
             case TRACE:
                 channelBuilder = new PlaintextChannelBuilder();
                 break;

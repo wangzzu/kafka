@@ -230,7 +230,7 @@ public final class Sensor {
      * @param metricName The name of the metric
      * @param stat The statistic to keep
      */
-    public void add(MetricName metricName, MeasurableStat stat) {
+    public void add(MetricName metricName, MeasurableStat stat) {//NOTE: 向 sensor 注册一个 metric
         add(metricName, stat, null);
     }
 

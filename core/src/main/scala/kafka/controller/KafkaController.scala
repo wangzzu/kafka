@@ -52,7 +52,7 @@ class ControllerContext(val zkUtils: ZkUtils) {
   var epoch: Int = KafkaController.InitialControllerEpoch - 1
   var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion - 1
   var allTopics: Set[String] = Set.empty
-  var partitionReplicaAssignment: mutable.Map[TopicAndPartition, Seq[Int]] = mutable.Map.empty
+  var partitionReplicaAssignment: mutable.Map[TopicAndPartition, Seq[Int]] = mutable.Map.empty //note: partition 与 Replicas 对应关系
   var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
   val partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
   val partitionsUndergoingPreferredReplicaElection: mutable.Set[TopicAndPartition] = new mutable.HashSet
@@ -317,6 +317,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
    * If it encounters any unexpected exception/error while becoming controller, it resigns as the current controller.
    * This ensures another controller election will be triggered and there will always be an actively serving controller
    */
+  //note: 当当前 Broker 被选为 controller 时,将被调用
   def onControllerFailover() {
     if(isRunning) {
       info("Broker %d starting become controller state transition".format(config.brokerId))
@@ -327,7 +328,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
       registerReassignedPartitionsListener()
       registerIsrChangeNotificationListener()
       registerPreferredReplicaElectionListener()
-      partitionStateMachine.registerListeners()
+      partitionStateMachine.registerListeners()//note: 注册 zk 的 listener（topic-change 和 topic-delete）
       replicaStateMachine.registerListeners()
 
       initializeControllerContext()
@@ -506,6 +507,14 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
    * 2. Invokes the new partition callback
    * 3. Send metadata request with the new topic to all brokers so they allow requests for that topic to be served
    */
+  //note: 当 partition state machine 监控到有新 topic 或 partition 时,这个方法将会被调用
+  /**
+    * 1. 注册 partition change listener;
+    * 2. 触发 the new partition callback,也即是 onNewPartitionCreation()
+    * 3. 发送 metadata 请求给所有的 Broker
+    * @param topics
+    * @param newPartitions
+    */
   def onNewTopicCreation(topics: Set[String], newPartitions: Set[TopicAndPartition]) {
     info("New topic creation callback for %s".format(newPartitions.mkString(",")))
     // subscribe to partition changes
@@ -519,6 +528,9 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
    * 1. Move the newly created partitions to the NewPartition state
    * 2. Move the newly created partitions from NewPartition->OnlinePartition state
    */
+  //note: topic 变化时,这个方法将会被调用
+  //note: 1. 将新创建的 partition 对象置为 NewPartition 状态; 2.从 NewPartition 改为 OnlinePartition 状态
+  //note: 1. 将新创建的 Replica 对象置为 NewReplica 状态; 2.从 NewReplica 改为 OnlineReplica 状态
   def onNewPartitionCreation(newPartitions: Set[TopicAndPartition]) {
     info("New partition creation callback for %s".format(newPartitions.mkString(",")))
     partitionStateMachine.handleStateChanges(newPartitions, NewPartition)

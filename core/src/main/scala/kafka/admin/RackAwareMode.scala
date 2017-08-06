@@ -19,6 +19,7 @@ package kafka.admin
 /**
   * Mode to control how rack aware replica assignment will be executed
   */
+//note: 控制机架感知的模式
 object RackAwareMode {
 
   /**

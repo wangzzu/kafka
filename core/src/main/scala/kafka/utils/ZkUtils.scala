@@ -385,6 +385,7 @@ class ZkUtils(val zkClient: ZkClient,
   }
 
 
+  //note: 初始化一个 Partition 的 zk 信息内容
   def leaderAndIsrZkData(leaderAndIsr: LeaderAndIsr, controllerEpoch: Int): String = {
     Json.encode(Map("version" -> 1, "leader" -> leaderAndIsr.leader, "leader_epoch" -> leaderAndIsr.leaderEpoch,
                     "controller_epoch" -> controllerEpoch, "isr" -> leaderAndIsr.isr))

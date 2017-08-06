@@ -493,11 +493,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         }
     }
 
-<<<<<<< HEAD
-
     //NOTE: 异步 commit 的方法,如果 GroupCoordinator 已知,直接进行 commit,否则先找到 GroupCoordinator 再进行 commit
-=======
->>>>>>> origin/0.10.2
     public void commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
         invokeCompletedOffsetCommitCallbacks();
 
@@ -567,12 +563,8 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
      * @return If the offset commit was successfully sent and a successful response was received from
      *         the coordinator
      */
-<<<<<<< HEAD
     //NOTE: 同步 commit
-    public void commitOffsetsSync(Map<TopicPartition, OffsetAndMetadata> offsets) {
-=======
     public boolean commitOffsetsSync(Map<TopicPartition, OffsetAndMetadata> offsets, long timeoutMs) {
->>>>>>> origin/0.10.2
         invokeCompletedOffsetCommitCallbacks();
 
         if (offsets.isEmpty())

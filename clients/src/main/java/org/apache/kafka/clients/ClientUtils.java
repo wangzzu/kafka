@@ -81,21 +81,6 @@ public class ClientUtils {
         if (!SecurityProtocol.nonTestingValues().contains(securityProtocol))
             throw new ConfigException("Invalid SecurityProtocol " + securityProtocol);
         String clientSaslMechanism = (String) configs.get(SaslConfigs.SASL_MECHANISM);
-<<<<<<< HEAD
-        return ChannelBuilders.create(securityProtocol, Mode.CLIENT, LoginType.CLIENT, configs, clientSaslMechanism,
-                true);//note: 最后一个参数默认为 true
-    }
-
-    public static Collection<ApiVersionsResponse.ApiVersion> buildExpectedApiVersions(Collection<ApiKeys> apiKeys) {
-        List<ApiVersionsResponse.ApiVersion> expectedApiVersions = new ArrayList<>();
-        for (ApiKeys apiKey : apiKeys)
-            expectedApiVersions.add(
-                    // once backwards client compatibility is added, expected min API version for an API should be set to it's min version
-                    new ApiVersionsResponse.ApiVersion(
-                            apiKey.id, Protocol.CURR_VERSION[apiKey.id], Protocol.CURR_VERSION[apiKey.id]));
-        return expectedApiVersions;
-=======
-        return ChannelBuilders.clientChannelBuilder(securityProtocol, LoginType.CLIENT, configs, clientSaslMechanism, true);
->>>>>>> origin/0.10.2
+        return ChannelBuilders.clientChannelBuilder(securityProtocol, LoginType.CLIENT, configs, clientSaslMechanism, true);//note: 最后一个参数默认为 true
     }
 }
