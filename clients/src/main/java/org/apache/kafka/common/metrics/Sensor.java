@@ -163,6 +163,7 @@ public final class Sensor {
      * @throws QuotaViolationException if recording this value moves a metric beyond its configured maximum or minimum
      *         bound
      */
+    //note: 记录某个时刻的 value
     public void record(double value, long timeMs) {
         if (shouldRecord()) {
             this.lastRecordTime = timeMs;

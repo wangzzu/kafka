@@ -38,9 +38,9 @@ object ReassignPartitionsCommand extends Logging {
                           30000,
                           JaasUtils.isZkSecurityEnabled())
     try {
-      if(opts.options.has(opts.verifyOpt))
+      if(opts.options.has(opts.verifyOpt))//note: 检测 reassignment 的状态
         verifyAssignment(zkUtils, opts)
-      else if(opts.options.has(opts.generateOpt))
+      else if(opts.options.has(opts.generateOpt))//note: 根据要迁移的 topic 及指定的 broker.list 制定出一个迁移方案,并不执行
         generateAssignment(zkUtils, opts)
       else if (opts.options.has(opts.executeOpt))
         executeAssignment(zkUtils, opts)
@@ -120,6 +120,7 @@ object ReassignPartitionsCommand extends Logging {
     println("Proposed partition reassignment configuration\n%s".format(ZkUtils.formatAsReassignmentJson(proposedAssignments)))
   }
 
+  //note: 给 partition 生成一个 reassignment 计划
   def generateAssignment(zkUtils: ZkUtils, brokerListToReassign: Seq[Int], topicsToMoveJsonString: String, disableRackAware: Boolean): (Map[TopicAndPartition, Seq[Int]], Map[TopicAndPartition, Seq[Int]]) = {
     val topicsToReassign = ZkUtils.parseTopicsData(topicsToMoveJsonString)
     val duplicateTopicsToReassign = CoreUtils.duplicates(topicsToReassign)
@@ -176,6 +177,7 @@ object ReassignPartitionsCommand extends Logging {
       .format(ZkUtils.formatAsReassignmentJson(currentPartitionReplicaAssignment)))
   }
 
+  //note: 解析 json 文件并检测
   def parseAndValidate(zkUtils: ZkUtils, reassignmentJsonString: String): Seq[(TopicAndPartition, Seq[Int])] = {
     val partitionsToBeReassigned = ZkUtils.parsePartitionReassignmentDataWithoutDedup(reassignmentJsonString)
     
@@ -384,6 +386,7 @@ class ReassignPartitionsCommand(zkUtils: ZkUtils, proposedAssignment: Map[TopicA
       allProposed.filter { case (tp, _) => tp.topic == topic })
   }
 
+  //note: parttion reassignment,将 reassignment 更新到 zk 上
   def reassignPartitions(throttle: Long = -1): Boolean = {
     maybeThrottle(throttle)
     try {

@@ -212,6 +212,7 @@ public class Selector implements Selectable {
     /**
      * Interrupt the nioSelector if it is blocked waiting to do I/O.
      */
+    //note: 如果 selector 是阻塞的话,就唤醒
     @Override
     public void wakeup() {
         this.nioSelector.wakeup();
@@ -238,6 +239,7 @@ public class Selector implements Selectable {
      * Queue the given request for sending in the subsequent {@link #poll(long)} calls
      * @param send The request to send
      */
+    //note: 发送请求
     public void send(Send send) {
         String connectionId = send.destination();
         if (closingChannels.containsKey(connectionId))
@@ -283,27 +285,33 @@ public class Selector implements Selectable {
      * @throws IllegalStateException If a send is given for which we have no existing connection or for which there is
      *         already an in-progress send
      */
+    //note: 非阻塞的 IO 的操作,在一次 poll 过程中,一个 channel 只能有一个 entry 来添加到 completedReceives 中,这样做是为了保证有序性,保证 server 在处理
+    //note： channel 上的请求时,是 one-at-a-time
     @Override
     public void poll(long timeout) throws IOException {
         if (timeout < 0)
             throw new IllegalArgumentException("timeout should be >= 0");
 
+        //note: Step1 清除相关记录
         clear();
 
         if (hasStagedReceives() || !immediatelyConnectedKeys.isEmpty())
             timeout = 0;
 
         /* check ready keys */
+        //note: Step2 获取就绪事件的数
         long startSelect = time.nanoseconds();
         int readyKeys = select(timeout);
         long endSelect = time.nanoseconds();
         this.sensors.selectTime.record(endSelect - startSelect, time.milliseconds());
 
+        //note: Step3 处理 io 操作
         if (readyKeys > 0 || !immediatelyConnectedKeys.isEmpty()) {
             pollSelectionKeys(this.nioSelector.selectedKeys(), false, endSelect);
             pollSelectionKeys(immediatelyConnectedKeys, true, endSelect);
         }
 
+        //note: Step4 将处理得到的 stagedReceives 添加到 completedReceives 中
         addToCompletedReceives();
 
         long endIo = time.nanoseconds();
@@ -311,6 +319,8 @@ public class Selector implements Selectable {
 
         // we use the time at the end of select to ensure that we don't close any connections that
         // have just been processed in pollSelectionKeys
+        //note: 每次 poll 之后会调用一次
+        //TODO: 连接虽然关闭了,但是 Client 端的缓存依然存在
         maybeCloseOldestConnection(endSelect);
     }
 
@@ -331,8 +341,9 @@ public class Selector implements Selectable {
             try {
 
                 /* complete any connections that have finished their handshake (either normally or immediately) */
+                //note: 处理一些刚建立 tcp 连接的 channel
                 if (isImmediatelyConnected || key.isConnectable()) {
-                    if (channel.finishConnect()) {
+                    if (channel.finishConnect()) {//note: 连接已经建立
                         this.connected.add(channel.id());
                         this.sensors.connectionCreated.record();
                         SocketChannel socketChannel = (SocketChannel) key.channel();
@@ -346,26 +357,28 @@ public class Selector implements Selectable {
                 }
 
                 /* if channel is not ready finish prepare */
+                //note: 处理 tcp 连接还未建立完成的连接,进行传输层的握手及认证
                 if (channel.isConnected() && !channel.ready())
                     channel.prepare();
 
                 /* if channel is ready read from any connections that have readable data */
                 if (channel.ready() && key.isReadable() && !hasStagedReceive(channel)) {
                     NetworkReceive networkReceive;
-                    while ((networkReceive = channel.read()) != null)
-                        addToStagedReceives(channel, networkReceive);
+                    while ((networkReceive = channel.read()) != null)//note: 知道读取一个完整的 Receive,才添加到集合中
+                        addToStagedReceives(channel, networkReceive);//note: 读取数据
                 }
 
                 /* if channel is ready write to any sockets that have space in their buffer and for which we have data */
                 if (channel.ready() && key.isWritable()) {
                     Send send = channel.write();
                     if (send != null) {
-                        this.completedSends.add(send);
+                        this.completedSends.add(send);//note: 将完成的 send 添加到 list 中
                         this.sensors.recordBytesSent(channel.id(), send.size());
                     }
                 }
 
                 /* cancel any defunct sockets */
+                //note: 关闭断开的连接
                 if (!key.isValid())
                     close(channel, true);
 
@@ -452,6 +465,7 @@ public class Selector implements Selectable {
     /**
      * Clear the results from the prior poll
      */
+    //note: 每次 poll 调用前都会清除以下缓存
     private void clear() {
         this.completedSends.clear();
         this.completedReceives.clear();
@@ -617,6 +631,7 @@ public class Selector implements Selectable {
     /**
      * adds a receive to staged receives
      */
+    //note: 将 receive 添加到该 channel 对应的队列中
     private void addToStagedReceives(KafkaChannel channel, NetworkReceive receive) {
         if (!stagedReceives.containsKey(channel))
             stagedReceives.put(channel, new ArrayDeque<NetworkReceive>());
@@ -629,7 +644,7 @@ public class Selector implements Selectable {
      * checks if there are any staged receives and adds to completedReceives
      */
     private void addToCompletedReceives() {
-        if (!this.stagedReceives.isEmpty()) {
+        if (!this.stagedReceives.isEmpty()) {//note: 处理 stagedReceives
             Iterator<Map.Entry<KafkaChannel, Deque<NetworkReceive>>> iter = this.stagedReceives.entrySet().iterator();
             while (iter.hasNext()) {
                 Map.Entry<KafkaChannel, Deque<NetworkReceive>> entry = iter.next();
@@ -646,7 +661,7 @@ public class Selector implements Selectable {
 
     private void addToCompletedReceives(KafkaChannel channel, Deque<NetworkReceive> stagedDeque) {
         NetworkReceive networkReceive = stagedDeque.poll();
-        this.completedReceives.add(networkReceive);
+        this.completedReceives.add(networkReceive); //note: 添加到 completedReceives 中
         this.sensors.recordBytesReceived(channel.id(), networkReceive.payload().limit());
     }
 
@@ -732,7 +747,7 @@ public class Selector implements Selectable {
             return sensor;
         }
 
-        //note: 与 node 相关的 metrics 信息
+        //note: 注册 node 相关的 metrics 信息（只是给新的连接注册 metrics）
         public void maybeRegisterConnectionMetrics(String connectionId) {
             if (!connectionId.isEmpty() && metricsPerConnection) {
                 // if one sensor of the metrics has been registered for the connection,
@@ -803,6 +818,7 @@ public class Selector implements Selectable {
     }
 
     // helper class for tracking least recently used connections to enable idle connection closing
+    //note: 一个类用于追踪最近使用的最少连接,用于关闭空闲的连接
     private static class IdleExpiryManager {
         private final Map<String, Long> lruConnections;
         private final long connectionsMaxIdleNanos;
@@ -819,7 +835,8 @@ public class Selector implements Selectable {
             lruConnections.put(connectionId, currentTimeNanos);
         }
 
-        public Map.Entry<String, Long> pollExpiredConnection(long currentTimeNanos) {
+        //note: 每次只找出最不活跃的那个连接
+     public Map.Entry<String, Long> pollExpiredConnection(long currentTimeNanos) {
             if (currentTimeNanos <= nextIdleCloseCheckTime)
                 return null;
 

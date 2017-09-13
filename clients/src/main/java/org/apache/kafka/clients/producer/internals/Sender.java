@@ -66,6 +66,7 @@ public class Sender implements Runnable {
     private final Metadata metadata;
 
     /* the flag indicating whether the producer should guarantee the message order on the broker or not. */
+    //note:
     private final boolean guaranteeMessageOrder;
 
     /* the maximum request size to attempt to send to the server */
@@ -133,6 +134,7 @@ public class Sender implements Runnable {
 
         log.debug("Beginning shutdown of Kafka producer I/O thread, sending remaining records.");
 
+        //note: sender 线程退出之后进行的一些操作,处理累加器中没有发送的数据以及没有发送成功的数据
         // okay we stopped accepting requests but there may still be
         // requests in the accumulator or waiting for acknowledgment,
         // wait until these are completed.
@@ -167,11 +169,11 @@ public class Sender implements Runnable {
     void run(long now) {
         Cluster cluster = metadata.fetch();
         // get the list of partitions with data ready to send
-        //note: 获取那些已经可以发送的 RecordBatch 对应的 nodes
+        //note: Step1 获取那些已经可以发送的 RecordBatch 对应的 nodes
         RecordAccumulator.ReadyCheckResult result = this.accumulator.ready(cluster, now);
 
         // if there are any partitions whose leaders are not known yet, force metadata update
-        //note: 如果有 topic-partition 的 leader 是未知的,就强制 metadata 更新
+        //note: Step2  如果有 topic-partition 的 leader 是未知的,就强制 metadata 更新
         if (!result.unknownLeaderTopics.isEmpty()) {
             // The set of topics with unknown leader contains topics with leader election pending as well as
             // topics which may have expired. Add the topic again to metadata to ensure it is included
@@ -182,26 +184,27 @@ public class Sender implements Runnable {
         }
 
         // remove any nodes we aren't ready to send to
-        //note: 如果与node 没有连接（如果可以连接,同时初始化该连接）,就证明该 node 暂时不能发送数据,暂时移除该 node
+        //note: 如果与node 没有连接（如果可以连接,会初始化该连接）,暂时先移除该 node
         Iterator<Node> iter = result.readyNodes.iterator();
         long notReadyTimeout = Long.MAX_VALUE;
         while (iter.hasNext()) {
             Node node = iter.next();
-            if (!this.client.ready(node, now)) {
+            if (!this.client.ready(node, now)) {//note: 没有建立连接的 broker,这里会与其建立连接
                 iter.remove();
                 notReadyTimeout = Math.min(notReadyTimeout, this.client.connectionDelay(node, now));
             }
         }
 
         // create produce requests
-        //note: 返回该 node 对应的所有可以发送的 RecordBatch 组成的 batches（key 是 node.id）,并将 RecordBatch 从对应的 queue 中移除
+        //note: Step3  返回该 node 对应的所有可以发送的 RecordBatch 组成的 batches（key 是 node.id,这些 batches 将会在一个 request 中发送）
         Map<Integer, List<RecordBatch>> batches = this.accumulator.drain(cluster,
                                                                          result.readyNodes,
                                                                          this.maxRequestSize,
                                                                          now);
+        //note: 保证一个 tp 只有一个 RecordBatch 在发送,保证有序性
+        //note: max.in.flight.requests.per.connection 设置为1时会保证
         if (guaranteeMessageOrder) {
-            // Mute all the partitions drained
-            //note: 记录将要发送的 RecordBatch
+            // Mute all the partitions draine
             for (List<RecordBatch> batchList : batches.values()) {
                 for (RecordBatch batch : batchList)
                     this.accumulator.mutePartition(batch.topicPartition);
@@ -225,14 +228,16 @@ public class Sender implements Runnable {
             log.trace("Nodes with data ready to send: {}", result.readyNodes);
             pollTimeout = 0;
         }
-        //note: 发送 RecordBatch
+        //note: Step4 发送 RecordBatch
         sendProduceRequests(batches, now);
 
         // if some partitions are already ready to be sent, the select time would be 0;
         // otherwise if some partition already has some data accumulated but not ready yet,
         // the select time will be the time difference between now and its linger expiry time;
         // otherwise the select time will be the time difference between now and the metadata expiry time;
-        this.client.poll(pollTimeout, now); //note: 关于 socket 的一些实际的读写操作（其中包括 meta 信息的更新）
+        //note: 如果有 partition 可以立马发送数据,那么 pollTimeout 为0.
+        //note: Step5 关于 socket 的一些实际的读写操作
+        this.client.poll(pollTimeout, now);
     }
 
     /**
@@ -302,7 +307,7 @@ public class Sender implements Runnable {
     private void completeBatch(RecordBatch batch, ProduceResponse.PartitionResponse response, long correlationId,
                                long now) {
         Errors error = response.error;
-        if (error != Errors.NONE && canRetry(batch, error)) {
+        if (error != Errors.NONE && canRetry(batch, error)) {//note: 如果错误可以重试,就重新发送数据
             // retry
             log.warn("Got error produce response with correlation id {} on topic-partition {}, retrying ({} attempts left). Error: {}",
                      correlationId,
@@ -311,7 +316,7 @@ public class Sender implements Runnable {
                      error);
             this.accumulator.reenqueue(batch, now);
             this.sensors.recordRetries(batch.topicPartition.topic(), batch.recordCount);
-        } else {
+        } else {//note: 发送成功或者遇到不能重试的错误
             RuntimeException exception;
             if (error == Errors.TOPIC_AUTHORIZATION_FAILED)
                 exception = new TopicAuthorizationException(batch.topicPartition.topic());

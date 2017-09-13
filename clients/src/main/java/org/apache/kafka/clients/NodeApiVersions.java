@@ -30,6 +30,7 @@ import java.util.TreeMap;
 /**
  * An internal class which represents the API versions supported by a particular node.
  */
+//note: 该 node 支持的 API 版本号
 public class NodeApiVersions {
     private static final short NODE_TOO_OLD = (short) -1;
     private static final short NODE_TOO_NEW = (short) -2;

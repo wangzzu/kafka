@@ -134,6 +134,7 @@ public class KafkaChannel {
         return socket.getInetAddress().toString();
     }
 
+    //note: 每次调用时都会注册一个 OP_WRITE 事件
     public void setSend(Send send) {
         if (this.send != null)
             throw new IllegalStateException("Attempt to begin a send operation with prior send operation still in progress.");
@@ -157,6 +158,7 @@ public class KafkaChannel {
         return result;
     }
 
+    //note: 调用 send() 发送 Send
     public Send write() throws IOException {
         Send result = null;
         if (send != null && send(send)) {
@@ -170,6 +172,7 @@ public class KafkaChannel {
         return receive.readFrom(transportLayer);
     }
 
+    //note: 发送完成后,就删除这个 WRITE 事件
     private boolean send(Send send) throws IOException {
         send.writeTo(transportLayer);
         if (send.completed())

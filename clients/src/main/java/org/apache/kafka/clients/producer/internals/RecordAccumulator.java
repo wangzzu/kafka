@@ -284,6 +284,7 @@ public final class RecordAccumulator {
     /**
      * Re-enqueue the given record batch in the accumulator to retry
      */
+    //note: 需要重试的 record
     public void reenqueue(RecordBatch batch, long now) {
         batch.attempts++;
         batch.lastAttemptMs = now;
@@ -291,7 +292,7 @@ public final class RecordAccumulator {
         batch.setRetry();
         Deque<RecordBatch> deque = getOrCreateDeque(batch.topicPartition);
         synchronized (deque) {
-            deque.addFirst(batch);
+            deque.addFirst(batch);//note: 添加到头部,避免乱序
         }
     }
 
@@ -332,7 +333,7 @@ public final class RecordAccumulator {
                     // This is a partition for which leader is not known, but messages are available to send.
                     // Note that entries are currently not removed from batches when deque is empty.
                     unknownLeaderTopics.add(part.topic());
-                } else if (!readyNodes.contains(leader) && !muted.contains(part)) {
+                } else if (!readyNodes.contains(leader) && !muted.contains(part)) {//note: part 如果 mute 就不会遍历
                     RecordBatch batch = deque.peekFirst();
                     if (batch != null) {
                         boolean backingOff = batch.attempts > 0 && batch.lastAttemptMs + retryBackoffMs > nowMs;
@@ -344,7 +345,7 @@ public final class RecordAccumulator {
                         boolean expired = waitedTimeMs >= timeToWaitMs; //note: batch 超时
                         boolean sendable = full || expired || exhausted || closed || flushInProgress();
                         if (sendable && !backingOff) {
-                            readyNodes.add(leader);
+                            readyNodes.add(leader);// note: 将可以发送的 leader 添加到集合中
                         } else {
                             // Note that this results in a conservative estimate since an un-sendable partition may have
                             // a leader that will later be found to have sendable data. However, this is good enough
@@ -383,7 +384,7 @@ public final class RecordAccumulator {
      * @param now The current unix time in milliseconds
      * @return A list of {@link RecordBatch} for each node specified with total size less than the requested maxSize.
      */
-    //note: 返回该 node 对应的可以发送的 RecordBatch 的 batches,并从 queue 中移除
+    //note: 返回该 node 对应的可以发送的 RecordBatch 的 batches,并从 queue 中移除（最大的大小为maxSize,超过的话,下次再发送）
     public Map<Integer, List<RecordBatch>> drain(Cluster cluster,
                                                  Set<Node> nodes,
                                                  int maxSize,
@@ -402,7 +403,7 @@ public final class RecordAccumulator {
                 PartitionInfo part = parts.get(drainIndex);
                 TopicPartition tp = new TopicPartition(part.topic(), part.partition());
                 // Only proceed if the partition has no in-flight batches.
-                if (!muted.contains(tp)) {
+                if (!muted.contains(tp)) {//note: 被 mute 的 tp 依然不会被遍历
                     Deque<RecordBatch> deque = getDeque(new TopicPartition(part.topic(), part.partition()));
                     if (deque != null) {
                         synchronized (deque) {

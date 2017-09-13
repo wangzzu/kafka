@@ -41,6 +41,7 @@ import org.apache.kafka.common.utils.Time;
  * buffers are deallocated.
  * </ol>
  */
+//note: Producer 可以使用的内存,通过这个类构造 Buffer
 public final class BufferPool {
 
     private final long totalMemory;

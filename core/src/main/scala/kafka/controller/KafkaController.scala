@@ -1259,6 +1259,8 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
  * If any of the above conditions are satisfied, it logs an error and removes the partition from list of reassigned
  * partitions.
  */
+//note: 开始进行 partition reassignment 除非这三种情况发生: 1. 这个 partition 的 reassignment 之前已经存在; 2. new replica 与已经存在的 replicas 相同
+//note: 3. replicas 的所有 replica 都已经 dead; 这种情况发生时,会输出一条日志,并移除该 reassignment
 class PartitionsReassignedListener(protected val controller: KafkaController) extends ControllerZkDataListener {
   private val controllerContext = controller.controllerContext
 

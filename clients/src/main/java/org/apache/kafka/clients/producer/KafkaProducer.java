@@ -553,7 +553,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         do {
             log.trace("Requesting metadata update for topic {}.", topic);
             int version = metadata.requestUpdate();//note: 返回当前版本号,初始值为0,每次更新时会自增,并将 needUpdate 设置为 true
-            sender.wakeup();//note: 唤起 sender
+            sender.wakeup();//note: 唤起 sender,sender 会阻塞在 select() 函数中
             try {
                 metadata.awaitUpdate(version, remainingWaitMs);//note: 等待 metadata 的更新
             } catch (TimeoutException ex) {
