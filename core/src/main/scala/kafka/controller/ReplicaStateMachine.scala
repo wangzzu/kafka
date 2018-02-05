@@ -361,7 +361,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
           ControllerStats.leaderElectionTimer.time {
             try {
               val curBrokers = currentBrokerList.map(_.toInt).toSet.flatMap(zkUtils.getBrokerInfo)
-              val curBrokerIds = curBrokers.map(_.id)
+              val curBrokerIds = curBrokers.map(_.id) //note: 缓存中的 broker_id.list
               val liveOrShuttingDownBrokerIds = controllerContext.liveOrShuttingDownBrokerIds
               val newBrokerIds = curBrokerIds -- liveOrShuttingDownBrokerIds
               val deadBrokerIds = liveOrShuttingDownBrokerIds -- curBrokerIds

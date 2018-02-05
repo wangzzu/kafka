@@ -159,12 +159,8 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
   def has(memberId: String) = members.contains(memberId)
   def get(memberId: String) = members(memberId)
 
-<<<<<<< HEAD
   //NOTE: 将该 member 加入 group 中,如果 group 中现在没有 member 那就将这个 member 设置该 group 的 leader
-  def add(memberId: String, member: MemberMetadata) {
-=======
   def add(member: MemberMetadata) {
->>>>>>> origin/0.10.2
     if (members.isEmpty)
       this.protocolType = Some(member.protocolType)
 
@@ -173,13 +169,13 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
     assert(supportsProtocols(member.protocols))
 
     if (leaderId == null)
-      leaderId = member.memberId
+      leaderId = member.memberId //note: 选取第一个为 leader
     members.put(member.memberId, member)
   }
 
   def remove(memberId: String) {
     members.remove(memberId)
-    if (memberId == leaderId) {
+    if (memberId == leaderId) { //note: 删除的是 leader 的话,就选取下一个为 leader
       leaderId = if (members.isEmpty) {
         null
       } else {
@@ -190,12 +186,14 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
 
   def currentState = state
 
+  //note: 没有发送【rejoin group】的 consumer, 已经在 members 中,但没有回调对象
   def notYetRejoinedMembers = members.values.filter(_.awaitingJoinCallback == null).toList
 
   def allMembers = members.keySet
 
   def allMemberMetadata = members.values.toList
 
+  //note: consumer group 的再平衡超时时间
   def rebalanceTimeoutMs = members.values.foldLeft(0) { (timeout, member) =>
     timeout.max(member.rebalanceTimeoutMs)
   }
@@ -210,6 +208,7 @@ private[coordinator] class GroupMetadata(val groupId: String, initialState: Grou
     state = groupState
   }
 
+  //note: client 进行 partition assignment 的算法
   def selectProtocol: String = {
     if (members.isEmpty)
       throw new IllegalStateException("Cannot select protocol for empty group")

@@ -60,6 +60,7 @@ public class ConsumerNetworkClient implements Closeable {
 
     // when requests complete, they are transferred to this queue prior to invocation. The purpose
     // is to avoid invoking them while holding this object's monitor which can open the door for deadlocks.
+    //note: 这里 response 完成的 request 都会添加到这里, 在 handler（RequestFutureCompletionHandler） 中添加的
     private final ConcurrentLinkedQueue<RequestFutureCompletionHandler> pendingCompletion = new ConcurrentLinkedQueue<>();
 
     // this flag allows the client to be safely woken up without waiting on the lock above. It is
@@ -90,6 +91,7 @@ public class ConsumerNetworkClient implements Closeable {
      * @param requestBuilder A builder for the request payload
      * @return A future which indicates the result of the send.
      */
+    //note: 将请求添加到 unsent 中,等待发送
     public RequestFuture<ClientResponse> send(Node node, AbstractRequest.Builder<?> requestBuilder) {
         long now = time.milliseconds();
         RequestFutureCompletionHandler completionHandler = new RequestFutureCompletionHandler();
@@ -180,6 +182,7 @@ public class ConsumerNetworkClient implements Closeable {
      * @throws WakeupException if {@link #wakeup()} is called from another thread
      * @throws InterruptException if the calling thread is interrupted
      */
+    //note: block 直到要请求的 request （future）已经完成或者 timeout
     public boolean poll(RequestFuture<?> future, long timeout) {
         long begin = time.milliseconds();
         long remaining = timeout;
@@ -208,13 +211,14 @@ public class ConsumerNetworkClient implements Closeable {
      * @param timeout timeout in milliseconds
      * @param now current time in milliseconds
      */
+    //note: 发送网络请求
     public void poll(long timeout, long now, PollCondition pollCondition) {
         // there may be handlers which need to be invoked if we woke up the previous call to poll
-        firePendingCompletedRequests();
+        firePendingCompletedRequests();//note: 处理那些已经完成但还在等待状态的 request
 
         synchronized (this) {
             // send all the requests we can send now
-            trySend(now);
+            trySend(now); //note: 发送所有可以发送的 request
 
             // check whether the poll is still needed by the caller. Note that if the expected completion
             // condition becomes satisfied after the call to shouldBlock() (because of a fired completion
@@ -226,7 +230,7 @@ public class ConsumerNetworkClient implements Closeable {
                 client.poll(Math.min(MAX_POLL_TIMEOUT_MS, timeout), now);
                 now = time.milliseconds();
             } else {
-                client.poll(0, now);
+                client.poll(0, now); //note: selector 发送请求
             }
 
             // handle any disconnects by failing the active requests. note that disconnects must
@@ -303,6 +307,7 @@ public class ConsumerNetworkClient implements Closeable {
      * have been transmitted (i.e. in-flight requests) and those which are awaiting transmission.
      * @return The total count of pending requests
      */
+    // note: 获取正在从所有 node 等待的所有请求数
     public int pendingRequestCount() {
         synchronized (this) {
             int total = 0;
@@ -312,6 +317,7 @@ public class ConsumerNetworkClient implements Closeable {
         }
     }
 
+    //note: 处于已经完成但还处理等待窗台的 request
     private void firePendingCompletedRequests() {
         boolean completedRequestsFired = false;
         for (;;) {
@@ -386,6 +392,7 @@ public class ConsumerNetworkClient implements Closeable {
         firePendingCompletedRequests();
     }
 
+    //note: 发送所有可以发送的 request
     private boolean trySend(long now) {
         // send any requests that can be sent now
         boolean requestsSent = false;
@@ -519,6 +526,7 @@ public class ConsumerNetworkClient implements Closeable {
          * Return whether the caller is still awaiting an IO event.
          * @return true if so, false otherwise.
          */
+        //note: 判断 caller 是否还阻塞在 IO 线程中
         boolean shouldBlock();
     }
 

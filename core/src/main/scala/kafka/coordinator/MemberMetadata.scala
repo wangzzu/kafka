@@ -69,7 +69,7 @@ private[coordinator] class MemberMetadata(val memberId: String,
   var latestHeartbeat: Long = -1
   var isLeaving: Boolean = false
 
-  def protocols = supportedProtocols.map(_._1).toSet
+  def protocols = supportedProtocols.map(_._1).toSet //note: consumer发送的协议元数据中,协议名称可以有多个,比如:range/roundrobin
 
   /**
    * Get metadata corresponding to the provided protocol.

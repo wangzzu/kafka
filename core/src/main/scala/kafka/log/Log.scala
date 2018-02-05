@@ -609,6 +609,7 @@ class Log(@volatile var dir: File,
    * @return The offset of the first message whose timestamp is greater than or equals to the given timestamp.
    *         None if no such message is found.
    */
+  //note: 返回第一个 msg （它的时间戳大于或等于给定的时间戳）的 offset,找不到的话,返回 the log end offset
   def fetchOffsetsByTimestamp(targetTimestamp: Long): Option[TimestampOffset] = {
     debug(s"Searching offset for timestamp $targetTimestamp")
 

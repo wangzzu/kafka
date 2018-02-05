@@ -90,7 +90,7 @@ public class ListOffsetRequest extends AbstractRequest {
                 throw new UnsupportedVersionException("Cannot create a v" + version + " ListOffsetRequest because " +
                     "we require features supported only in " + minVersion + " or later.");
             }
-            if (version == 0) {
+            if (version == 0) {//note: offsetData 为 nll 时,会创建相应的实例
                 if (offsetData == null) {
                     if (partitionTimestamps == null) {
                         throw new RuntimeException("Must set partitionTimestamps or offsetData when creating a v0 " +
@@ -99,7 +99,7 @@ public class ListOffsetRequest extends AbstractRequest {
                         offsetData = new HashMap<>();
                         for (Map.Entry<TopicPartition, Long> entry: partitionTimestamps.entrySet()) {
                             offsetData.put(entry.getKey(),
-                                    new PartitionData(entry.getValue(), 1));
+                                    new PartitionData(entry.getValue(), 1)); //note: maxNumOffsets 为1
                         }
                         this.partitionTimestamps = null;
                     }

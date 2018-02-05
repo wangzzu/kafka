@@ -44,9 +44,10 @@ import java.util.concurrent.locks.ReentrantLock
 import kafka.server._
 import kafka.common.TopicAndPartition
 
+//note: controller 的上下文数据,启动控制器时从 zk 初始化数据
 class ControllerContext(val zkUtils: ZkUtils) {
   var controllerChannelManager: ControllerChannelManager = null
-  val controllerLock: ReentrantLock = new ReentrantLock()
+  val controllerLock: ReentrantLock = new ReentrantLock() //note:重入锁,默认是非公平选择,当多个线程被阻塞时,锁释放后,随机选择一个线程
   var shuttingDownBrokerIds: mutable.Set[Int] = mutable.Set.empty
   val brokerShutdownLock: Object = new Object
   var epoch: Int = KafkaController.InitialControllerEpoch - 1
@@ -317,7 +318,13 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
    * If it encounters any unexpected exception/error while becoming controller, it resigns as the current controller.
    * This ensures another controller election will be triggered and there will always be an actively serving controller
    */
-  //note: 当当前 Broker 被选为 controller 时,将被调用
+  //note: 当当前 Broker 被选为 controller 时, 当被选为 controller,它将会做以下操作
+  //note: 1. 注册 controller epoch changed listener;
+  //note: 2. controller epoch 自增加1;
+  //note: 3. 初始化 KafkaController 的成员变量 ControllerContext,它包含了当前的 topic、存活的 broker 以及已经存在的 partition 的 leader;
+  //note: 4. 启动 controller 的 channel 管理: 建立与其他 broker 的连接的,负责与其他 broker 之间的通信;
+  //note: 5. 启动 ReplicaStateMachine（副本状态机,管理副本的状态）;
+  //note: 6. 启动 PartitionStateMachine（分区状态机,管理分区的状态）;
   def onControllerFailover() {
     if(isRunning) {
       info("Broker %d starting become controller state transition".format(config.brokerId))
@@ -328,10 +335,11 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
       registerReassignedPartitionsListener()
       registerIsrChangeNotificationListener()
       registerPreferredReplicaElectionListener()
-      partitionStateMachine.registerListeners()//note: 注册 zk 的 listener（topic-change 和 topic-delete）
-      replicaStateMachine.registerListeners()
+      partitionStateMachine.registerListeners()//note: watch 新 partition 的变化
+      replicaStateMachine.registerListeners() //note: watch broker 的变化
 
-      initializeControllerContext()
+      //note: 初始化 controller 相关的变量信息:包括 alive broker 列表、partition 的详细信息等
+      initializeControllerContext() //note: 初始化 controller 相关的变量信息
 
       // We need to send UpdateMetadataRequest after the controller context is initialized and before the state machines
       // are started. The is because brokers need to receive the list of live brokers from UpdateMetadataRequest before
@@ -339,8 +347,11 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
       // partitionStateMachine.startup().
       sendUpdateMetadataRequest(controllerContext.liveOrShuttingDownBrokerIds.toSeq)
 
-      replicaStateMachine.startup()
-      partitionStateMachine.startup()
+      //note: 初始化 replica 的状态信息: replica 是存活状态时是 OnlineReplica, 否则是 ReplicaDeletionIneligible
+      replicaStateMachine.startup() //note: 初始化 replica 的状态信息
+      //note: 初始化 partition 的状态信息:如果 leader 所在 broker 是 alive 的,那么状态为 OnlinePartition,否则为 OfflinePartition
+      //note: 并状态为 OfflinePartition 的 topic 选举 leader
+      partitionStateMachine.startup() //note: 初始化 partition 的状态信息
 
       // register the partition change listeners for all existing topics on failover
       controllerContext.allTopics.foreach(topic => partitionStateMachine.registerPartitionChangeListener(topic))
@@ -351,7 +362,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
         info("starting the partition rebalance scheduler")
         autoRebalanceScheduler.startup()
         autoRebalanceScheduler.schedule("partition-rebalance-thread", checkAndTriggerPartitionRebalance,
-          5, config.leaderImbalanceCheckIntervalSeconds.toLong, TimeUnit.SECONDS)
+          5, config.leaderImbalanceCheckIntervalSeconds.toLong, TimeUnit.SECONDS) //note: 发送最新的 meta 信息
       }
       deleteTopicManager.start()
     }
@@ -689,9 +700,9 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
   def startup() = {
     inLock(controllerContext.controllerLock) {
       info("Controller starting up")
-      registerSessionExpirationListener()
+      registerSessionExpirationListener() // note: 注册回话失效的监听器
       isRunning = true
-      controllerElector.startup
+      controllerElector.startup //note: 启动选举过程
       info("Controller startup complete")
     }
   }
@@ -748,6 +759,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     zkUtils.zkClient.subscribeStateChanges(new SessionExpirationListener())
   }
 
+  //note: 初始化 KafkaController 的上下文数据
   private def initializeControllerContext() {
     // update controller cache with delete topic information
     controllerContext.liveBrokers = zkUtils.getAllBrokersInCluster().toSet
@@ -1182,7 +1194,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     @throws[Exception]
     def handleNewSession() {
       info("ZK expired; shut down all controller components and try to re-elect")
-      if (controllerElector.getControllerID() != config.brokerId) {
+      if (controllerElector.getControllerID() != config.brokerId) { //note: 会话超时,重新参与选举
         onControllerResignation()
         inLock(controllerContext.controllerLock) {
           controllerElector.elect
@@ -1259,8 +1271,11 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
  * If any of the above conditions are satisfied, it logs an error and removes the partition from list of reassigned
  * partitions.
  */
-//note: 开始进行 partition reassignment 除非这三种情况发生: 1. 这个 partition 的 reassignment 之前已经存在; 2. new replica 与已经存在的 replicas 相同
-//note: 3. replicas 的所有 replica 都已经 dead; 这种情况发生时,会输出一条日志,并移除该 reassignment
+//note: 开始进行 partition reassignment 除非这三种情况发生:
+//note: 1. 这个 partition 的 reassignment 之前已经存在;
+//note: 2. new replica 与已经存在的 replicas 相同
+//note: 3. replicas 的所有 replica 都已经 dead;
+//note: 这种情况发生时,会输出一条日志,并移除该 reassignment
 class PartitionsReassignedListener(protected val controller: KafkaController) extends ControllerZkDataListener {
   private val controllerContext = controller.controllerContext
 

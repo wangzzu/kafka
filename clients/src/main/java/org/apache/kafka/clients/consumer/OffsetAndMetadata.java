@@ -19,6 +19,7 @@ import java.io.Serializable;
  * when an offset is committed. This can be useful (for example) to store information about which
  * node made the commit, what time the commit was made, etc.
  */
+//note: 当进行 offset commit 时,允许开发者使用一个额外的 metadata,它是有用的来存储往哪个 node commit 以及何时 commit
 public class OffsetAndMetadata implements Serializable {
     private final long offset;
     private final String metadata;

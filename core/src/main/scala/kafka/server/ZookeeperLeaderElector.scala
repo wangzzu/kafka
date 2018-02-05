@@ -32,7 +32,7 @@ import org.apache.kafka.common.utils.Time
  * callback
  */
 class ZookeeperLeaderElector(controllerContext: ControllerContext,
-                             electionPath: String,
+                             electionPath: String, //note: 路径是 /controller
                              onBecomingLeader: () => Unit,
                              onResigningAsLeader: () => Unit,
                              brokerId: Int,
@@ -59,6 +59,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
     }
   }
 
+  //note: 进行 controller 选举
   def elect: Boolean = {
     val timestamp = time.milliseconds.toString
     val electString = Json.encode(Map("version" -> 1, "brokerid" -> brokerId, "timestamp" -> timestamp))
@@ -79,7 +80,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
                                                       electString,
                                                       controllerContext.zkUtils.zkConnection.getZookeeper,
                                                       JaasUtils.isZkSecurityEnabled())
-      zkCheckedEphemeral.create()
+      zkCheckedEphemeral.create() //note: 没有异常的话就是创建成功了
       info(brokerId + " successfully elected as leader")
       leaderId = brokerId
       onBecomingLeader()
@@ -115,6 +116,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
    * We do not have session expiration listen in the ZkElection, but assuming the caller who uses this module will
    * have its own session expiration listener and handler
    */
+  //note: 监控 controller 内容的变化
   class LeaderChangeListener extends IZkDataListener with Logging {
     /**
      * Called when the leader information stored in zookeeper has changed. Record the new leader in memory

@@ -64,6 +64,7 @@ trait Scheduler {
  * @param threadNamePrefix The name to use for scheduler threads. This prefix will have a number appended to it.
  * @param daemon If true the scheduler threads will be "daemon" threads and will not block jvm shutdown.
  */
+//note: M 个线程用于处理 Kafka Broker 的各种任务,M 通过 background.threads 来配置,默认是10个
 @threadsafe
 class KafkaScheduler(val threads: Int, 
                      val threadNamePrefix: String = "kafka-scheduler-", 
@@ -77,8 +78,8 @@ class KafkaScheduler(val threads: Int,
       if(isStarted)
         throw new IllegalStateException("This scheduler has already been started!")
       executor = new ScheduledThreadPoolExecutor(threads)
-      executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false)
-      executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false)
+      executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false) //note: shutdown 后不再执行已经存在的周期性任务
+      executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false) //note: shutdown 后不再执行已经存在的延迟任务
       executor.setThreadFactory(new ThreadFactory() {
                                   def newThread(runnable: Runnable): Thread = 
                                     Utils.newThread(threadNamePrefix + schedulerThreadId.getAndIncrement(), runnable, daemon)

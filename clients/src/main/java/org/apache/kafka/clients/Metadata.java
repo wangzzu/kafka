@@ -175,6 +175,7 @@ public final class Metadata {
      * reset on the next update.
      * @param topics
      */
+    //note: 更新 topic set
     public synchronized void setTopics(Collection<String> topics) {
         if (!this.topics.keySet().containsAll(topics)) {
             requestUpdateForNewTopics();

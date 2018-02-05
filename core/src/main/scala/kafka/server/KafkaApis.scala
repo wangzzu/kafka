@@ -235,14 +235,14 @@ class KafkaApis(val requestChannel: RequestChannel,
     val offsetCommitRequest = request.body.asInstanceOf[OffsetCommitRequest]
 
     // reject the request if not authorized to the group
-    if (!authorize(request.session, Read, new Resource(Group, offsetCommitRequest.groupId))) {
+    if (!authorize(request.session, Read, new Resource(Group, offsetCommitRequest.groupId))) {//note: 验证 group 权限
       val errorCode = new JShort(Errors.GROUP_AUTHORIZATION_FAILED.code)
       val results = offsetCommitRequest.offsetData.keySet.asScala.map { topicPartition =>
         (topicPartition, errorCode)
       }.toMap
       val response = new OffsetCommitResponse(results.asJava)
       requestChannel.sendResponse(new RequestChannel.Response(request, response))
-    } else {
+    } else {//note: 验证 topic 的 Read 及 topic 是否存在
       val (existingAndAuthorizedForDescribeTopics, nonExistingOrUnauthorizedForDescribeTopics) = offsetCommitRequest.offsetData.asScala.toMap.partition {
         case (topicPartition, _) => {
           val authorizedForDescribe = authorize(request.session, Describe, new Resource(auth.Topic, topicPartition.topic))
@@ -254,6 +254,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         }
       }
 
+      //note: 验证 Describe 权限
       val (authorizedTopics, unauthorizedForReadTopics) = existingAndAuthorizedForDescribeTopics.partition {
         case (topicPartition, _) => authorize(request.session, Read, new Resource(auth.Topic, topicPartition.topic))
       }
@@ -312,6 +313,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         //   - If v1 and no explicit commit timestamp is provided we use default expiration timestamp.
         //   - If v1 and explicit commit timestamp is provided we calculate retention from that explicit commit timestamp
         //   - If v2 we use the default expiration timestamp
+        //note: 默认的 expiration timestrap 是当前时间戳-1
         val currentTimestamp = time.milliseconds
         val defaultExpireTimestamp = offsetRetention + currentTimestamp
         val partitionData = authorizedTopics.mapValues { partitionData =>
@@ -349,10 +351,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     val produceRequest = request.body.asInstanceOf[ProduceRequest]
     val numBytesAppended = request.header.sizeOf + produceRequest.sizeOf
 
+    //note: 按 exist 和有 Describe 权限进行筛选
     val (existingAndAuthorizedForDescribeTopics, nonExistingOrUnauthorizedForDescribeTopics) = produceRequest.partitionRecords.asScala.partition {
       case (topicPartition, _) => authorize(request.session, Describe, new Resource(auth.Topic, topicPartition.topic)) && metadataCache.contains(topicPartition.topic)
     }
 
+    //note: 判断有没有 Write 权限
     val (authorizedRequestInfo, unauthorizedForWriteRequestInfo) = existingAndAuthorizedForDescribeTopics.partition {
       case (topicPartition, _) => authorize(request.session, Write, new Resource(auth.Topic, topicPartition.topic))
     }
@@ -424,6 +428,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       val internalTopicsAllowed = request.header.clientId == AdminUtils.AdminClientId
 
       // call the replica manager to append messages to the replicas
+      //note: 追加 Record
       replicaManager.appendRecords(
         produceRequest.timeout.toLong,
         produceRequest.acks,
@@ -446,18 +451,22 @@ class KafkaApis(val requestChannel: RequestChannel,
     val versionId = request.header.apiVersion
     val clientId = request.header.clientId
 
+    //note: 判断 tp 是否存在以及是否有 Describe 权限
     val (existingAndAuthorizedForDescribeTopics, nonExistingOrUnauthorizedForDescribeTopics) = fetchRequest.fetchData.asScala.toSeq.partition {
       case (tp, _) => authorize(request.session, Describe, new Resource(auth.Topic, tp.topic)) && metadataCache.contains(tp.topic)
     }
 
+    //note: 判断 tp 是否有 Read 权限
     val (authorizedRequestInfo, unauthorizedForReadRequestInfo) = existingAndAuthorizedForDescribeTopics.partition {
       case (tp, _) => authorize(request.session, Read, new Resource(auth.Topic, tp.topic))
     }
 
+    //note: 不存在或没有 Describe 权限的 topic 返回 UNKNOWN_TOPIC_OR_PARTITION 错误
     val nonExistingOrUnauthorizedForDescribePartitionData = nonExistingOrUnauthorizedForDescribeTopics.map {
       case (tp, _) => (tp, new FetchResponse.PartitionData(Errors.UNKNOWN_TOPIC_OR_PARTITION.code, -1, MemoryRecords.EMPTY))
     }
 
+    //note: 没有 Read 权限的 topic 返回 TOPIC_AUTHORIZATION_FAILED 错误
     val unauthorizedForReadPartitionData = unauthorizedForReadRequestInfo.map {
       case (tp, _) => (tp, new FetchResponse.PartitionData(Errors.TOPIC_AUTHORIZATION_FAILED.code, -1, MemoryRecords.EMPTY))
     }
@@ -481,6 +490,7 @@ class KafkaApis(val requestChannel: RequestChannel,
             FetchPartitionData(data.error, data.hw, data.records.toMessageFormat(Record.MAGIC_VALUE_V0))
           } else data
 
+          tp -> new FetchResponse.PartitionData(convertedData.error.code, convertedData.hw, convertedData.records)
           tp -> new FetchResponse.PartitionData(convertedData.error.code, convertedData.hw, convertedData.records)
         }
       }
@@ -561,15 +571,16 @@ class KafkaApis(val requestChannel: RequestChannel,
     val version = request.header.apiVersion()
 
     val mergedResponseMap =
-      if (version == 0)
+      if (version == 0) //note: 按照策略
         handleOffsetRequestV0(request)
-      else
+      else//note: 按照 timestrap
         handleOffsetRequestV1(request)
 
     val response = new ListOffsetResponse(mergedResponseMap.asJava, version)
     requestChannel.sendResponse(new RequestChannel.Response(request, response))
   }
 
+  //note: 获取相应的 offset 按策略（earliest 或 largest）
   private def handleOffsetRequestV0(request : RequestChannel.Request) : Map[TopicPartition, ListOffsetResponse.PartitionData] = {
     val correlationId = request.header.correlationId
     val clientId = request.header.clientId
@@ -587,20 +598,20 @@ class KafkaApis(val requestChannel: RequestChannel,
       try {
         // ensure leader exists
         val localReplica = if (offsetRequest.replicaId != ListOffsetRequest.DEBUGGING_REPLICA_ID)
-          replicaManager.getLeaderReplicaIfLocal(topicPartition)
+          replicaManager.getLeaderReplicaIfLocal(topicPartition) //note: 默认为 CONSUMER_REPLICA_ID
         else
           replicaManager.getReplicaOrException(topicPartition)
         val offsets = {
           val allOffsets = fetchOffsets(replicaManager.logManager,
             topicPartition,
             partitionData.timestamp,
-            partitionData.maxNumOffsets)
+            partitionData.maxNumOffsets) //note: 为1
           if (offsetRequest.replicaId != ListOffsetRequest.CONSUMER_REPLICA_ID) {
             allOffsets
           } else {
             val hw = localReplica.highWatermark.messageOffset
             if (allOffsets.exists(_ > hw))
-              hw +: allOffsets.dropWhile(_ > hw)
+              hw +: allOffsets.dropWhile(_ > hw)//note: 如果 offset 比 hw 还大,就赋值为 hw 的值
             else
               allOffsets
           }
@@ -647,6 +658,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         try {
           val fromConsumer = offsetRequest.replicaId == ListOffsetRequest.CONSUMER_REPLICA_ID
 
+          //note: 默认为 CONSUMER_REPLICA_ID
           // ensure leader exists
           val localReplica = if (offsetRequest.replicaId != ListOffsetRequest.DEBUGGING_REPLICA_ID)
             replicaManager.getLeaderReplicaIfLocal(topicPartition)
@@ -655,8 +667,9 @@ class KafkaApis(val requestChannel: RequestChannel,
 
           val found = {
             if (fromConsumer && timestamp == ListOffsetRequest.LATEST_TIMESTAMP)
-              TimestampOffset(Record.NO_TIMESTAMP, localReplica.highWatermark.messageOffset)
+              TimestampOffset(Record.NO_TIMESTAMP, localReplica.highWatermark.messageOffset)//note: 直接返回 hw 的 offset
             else {
+              //note: 确保 offset 是小于 hw
               def allowed(timestampOffset: TimestampOffset): Boolean =
                 !fromConsumer || timestampOffset.offset <= localReplica.highWatermark.messageOffset
 
@@ -693,7 +706,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   def fetchOffsets(logManager: LogManager, topicPartition: TopicPartition, timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
     logManager.getLog(topicPartition) match {
       case Some(log) =>
-        fetchOffsetsBefore(log, timestamp, maxNumOffsets)
+        fetchOffsetsBefore(log, timestamp, maxNumOffsets) //note: tp 的 log 存在的情况下
       case None =>
         if (timestamp == ListOffsetRequest.LATEST_TIMESTAMP || timestamp == ListOffsetRequest.EARLIEST_TIMESTAMP)
           Seq(0L)
@@ -702,20 +715,22 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
+  //note: 按时间戳获取 offset
   private def fetchOffsetForTimestamp(logManager: LogManager, topicPartition: TopicPartition, timestamp: Long) : Option[TimestampOffset] = {
     logManager.getLog(topicPartition) match {
       case Some(log) =>
-        log.fetchOffsetsByTimestamp(timestamp)
+        log.fetchOffsetsByTimestamp(timestamp) //note: 实际获取 offset 的地方
       case None =>
         throw new UnknownTopicOrPartitionException(s"$topicPartition does not exist on the broker.")
     }
   }
 
+  //note: 按时间戳去获取这个 Log 的相应 offset
   private[server] def fetchOffsetsBefore(log: Log, timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
     // Cache to avoid race conditions. `toBuffer` is faster than most alternatives and provides
     // constant time access while being safe to use with concurrent collections unlike `toArray`.
     val segments = log.logSegments.toBuffer
-    val lastSegmentHasSize = segments.last.size > 0
+    val lastSegmentHasSize = segments.last.size > 0 //note: 最新的 segment 是否有数据
 
     val offsetTimeArray =
       if (lastSegmentHasSize)
@@ -723,11 +738,13 @@ class KafkaApis(val requestChannel: RequestChannel,
       else
         new Array[(Long, Long)](segments.length)
 
+    //note: 获取每个 segment 的开始与结束的 offset
     for (i <- segments.indices)
       offsetTimeArray(i) = (segments(i).baseOffset, segments(i).lastModified)
     if (lastSegmentHasSize)
-      offsetTimeArray(segments.length) = (log.logEndOffset, time.milliseconds)
+      offsetTimeArray(segments.length) = (log.logEndOffset, time.milliseconds) //note: 第一位放的是最大的那个 offset
 
+    //note: 先找到对应的 segment 文件
     var startIndex = -1
     timestamp match {
       case ListOffsetRequest.LATEST_TIMESTAMP =>
@@ -746,13 +763,14 @@ class KafkaApis(val requestChannel: RequestChannel,
         }
     }
 
-    val retSize = maxNumOffsets.min(startIndex + 1)
+    val retSize = maxNumOffsets.min(startIndex + 1) //note: 取最小值, maxNumOffsets 默认为1
     val ret = new Array[Long](retSize)
     for (j <- 0 until retSize) {
-      ret(j) = offsetTimeArray(startIndex)._1
+      ret(j) = offsetTimeArray(startIndex)._1 //note: 当获取的是 earliest 或 largest 时,这个都是正确的
       startIndex -= 1
     }
     // ensure that the returned seq is in descending order of offsets
+    //note: 返回的这个 segment 文件的所有 offset
     ret.toSeq.sortBy(-_)
   }
 
@@ -902,7 +920,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     val offsetFetchRequest = request.body.asInstanceOf[OffsetFetchRequest]
 
     def authorizeTopicDescribe(partition: TopicPartition) =
-      authorize(request.session, Describe, new Resource(auth.Topic, partition.topic))
+      authorize(request.session, Describe, new Resource(auth.Topic, partition.topic)) //note: 验证 Describe 权限
 
     val offsetFetchResponse =
       // reject the request if not authorized to the group
@@ -940,16 +958,17 @@ class KafkaApis(val requestChannel: RequestChannel,
           new OffsetFetchResponse(Errors.NONE, (authorizedPartitionData ++ unauthorizedPartitionData).asJava, header.apiVersion)
         } else {
           // versions 1 and above read offsets from Kafka
-          if (offsetFetchRequest.isAllPartitions) {
+          if (offsetFetchRequest.isAllPartitions) {//note: 获取这个 group 消费的所有 tp offset
             val (error, allPartitionData) = coordinator.handleFetchOffsets(offsetFetchRequest.groupId)
             if (error != Errors.NONE)
               offsetFetchRequest.getErrorResponse(error)
             else {
               // clients are not allowed to see offsets for topics that are not authorized for Describe
+              //note: 如果没有 Describe 权限的话,不能查看相应的 offset
               val authorizedPartitionData = allPartitionData.filter { case (topicPartition, _) => authorizeTopicDescribe(topicPartition) }
               new OffsetFetchResponse(Errors.NONE, authorizedPartitionData.asJava, header.apiVersion)
             }
-          } else {
+          } else { //note: 获取指定列表的 tp offset
             val (authorizedPartitions, unauthorizedPartitions) = offsetFetchRequest.partitions.asScala
               .partition(authorizeTopicDescribe)
             val (error, authorizedPartitionData) = coordinator.handleFetchOffsets(offsetFetchRequest.groupId,
@@ -975,6 +994,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       val responseBody = new GroupCoordinatorResponse(Errors.GROUP_AUTHORIZATION_FAILED.code, Node.noNode)
       requestChannel.sendResponse(new RequestChannel.Response(request, responseBody))
     } else {
+      //note: 获取 group 对应的 partition.id（group hash 值与 parition 总大小的比值）
       val partition = coordinator.partitionFor(groupCoordinatorRequest.groupId)
 
       // get metadata (and create the topic if necessary)
@@ -985,7 +1005,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       } else {
         val coordinatorEndpoint = offsetsTopicMetadata.partitionMetadata().asScala
           .find(_.partition == partition)
-          .map(_.leader())
+          .map(_.leader()) //note: 获取对应 partition 的 leader
 
         coordinatorEndpoint match {
           case Some(endpoint) if !endpoint.isEmpty =>

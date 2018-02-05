@@ -301,7 +301,7 @@ class ReplicaManager(val config: KafkaConfig,
    * Append messages to leader replicas of the partition, and wait for them to be replicated to other replicas;
    * the callback function will be triggered either when timeout or the required acks are satisfied
    */
-  //note: 向 partiion 的 leader 写入数据
+  //note: 向 partition 的 leader 写入数据
   def appendRecords(timeout: Long,
                     requiredAcks: Short,
                     internalTopicsAllowed: Boolean,
@@ -444,8 +444,8 @@ class ReplicaManager(val config: KafkaConfig,
                     fetchInfos: Seq[(TopicPartition, PartitionData)],
                     quota: ReplicaQuota = UnboundedQuota,
                     responseCallback: Seq[(TopicPartition, FetchPartitionData)] => Unit) {
-    val isFromFollower = replicaId >= 0
-    val fetchOnlyFromLeader: Boolean = replicaId != Request.DebuggingConsumerId
+    val isFromFollower = replicaId >= 0 //note: 判断请求是来自 consumer （这个值为 -1）还是副本同步
+    val fetchOnlyFromLeader: Boolean = replicaId != Request.DebuggingConsumerId //note: consumer 情况下,只从 leader fetch
     val fetchOnlyCommitted: Boolean = ! Request.isValidBrokerId(replicaId)
 
     // read from local logs
@@ -460,6 +460,7 @@ class ReplicaManager(val config: KafkaConfig,
 
     // if the fetch comes from the follower,
     // update its corresponding log end offset
+    //note: 如果 fetch 来自 broker 的副本同步,那么就更新相关的 log end offset
     if(Request.isValidBrokerId(replicaId))
       updateFollowerLogReadResults(replicaId, logReadResults)
 
@@ -503,6 +504,7 @@ class ReplicaManager(val config: KafkaConfig,
   /**
    * Read from multiple topic partitions at the given offset up to maxSize bytes
    */
+  //note: 按 offset 从 tp 列表中读取相应的数据
   def readFromLocalLog(replicaId: Int,
                        fetchOnlyFromLeader: Boolean,
                        readOnlyCommitted: Boolean,
@@ -601,7 +603,7 @@ class ReplicaManager(val config: KafkaConfig,
     val result = new mutable.ArrayBuffer[(TopicPartition, LogReadResult)]
     var minOneMessage = !hardMaxBytesLimit
     readPartitionInfo.foreach { case (tp, fetchInfo) =>
-      val readResult = read(tp, fetchInfo, limitBytes, minOneMessage)
+      val readResult = read(tp, fetchInfo, limitBytes, minOneMessage) //note: 读取该 tp 的数据
       val messageSetSize = readResult.info.records.sizeInBytes
       // Once we read from a non-empty partition, we stop ignoring request and partition level size limits
       if (messageSetSize > 0)
@@ -628,12 +630,8 @@ class ReplicaManager(val config: KafkaConfig,
       replica.log.map(log => (log.config.messageFormatVersion.messageFormatVersion, log.config.messageTimestampType))
     }
 
-<<<<<<< HEAD
   //NOTE: Controller 向所有的 Broker 发送请求,让它们去更新各自的 meta 信息
-  def maybeUpdateMetadataCache(correlationId: Int, updateMetadataRequest: UpdateMetadataRequest, metadataCache: MetadataCache) {
-=======
   def maybeUpdateMetadataCache(correlationId: Int, updateMetadataRequest: UpdateMetadataRequest, metadataCache: MetadataCache) : Seq[TopicPartition] =  {
->>>>>>> origin/0.10.2
     replicaStateChangeLock synchronized {
       if(updateMetadataRequest.controllerEpoch < controllerEpoch) {
         val stateControllerEpochErrorMessage = ("Broker %d received update metadata request with correlation id %d from an " +

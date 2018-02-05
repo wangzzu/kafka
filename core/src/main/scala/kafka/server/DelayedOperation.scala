@@ -179,6 +179,7 @@ class DelayedOperationPurgatory[T <: DelayedOperation](purgatoryName: String,
    * @param watchKeys keys for bookkeeping the operation
    * @return true iff the delayed operations can be completed by the caller
    */
+  //note: 检查延迟操作是否可以完成,如果不能完成,就以指定的 keys 去监控这个延迟操作,并放入延迟缓存中
   def tryCompleteElseWatch(operation: T, watchKeys: Seq[Any]): Boolean = {
     assert(watchKeys.nonEmpty, "The watch key list can't be empty")
 
@@ -231,12 +232,13 @@ class DelayedOperationPurgatory[T <: DelayedOperation](purgatoryName: String,
    *
    * @return the number of completed operations during this process
    */
+  //note: 检查指定的 key 对应的延迟操作是否可以完成
   def checkAndComplete(key: Any): Int = {
     val watchers = inReadLock(removeWatchersLock) { watchersForKey.get(key) }
     if(watchers == null)
       0
     else
-      watchers.tryCompleteWatched()
+      watchers.tryCompleteWatched() //note: 调用 tryCompete()
   }
 
   /**

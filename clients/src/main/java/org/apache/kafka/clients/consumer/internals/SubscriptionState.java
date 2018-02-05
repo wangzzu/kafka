@@ -106,6 +106,7 @@ public class SubscriptionState {
             throw new IllegalStateException(SUBSCRIPTION_EXCEPTION_MESSAGE);
     }
 
+    //note: 订阅的是 topicList, auto_topics
     public void subscribe(Set<String> topics, ConsumerRebalanceListener listener) {
         if (listener == null)
             throw new IllegalArgumentException("RebalanceListener cannot be null");
@@ -137,6 +138,7 @@ public class SubscriptionState {
      * that it receives metadata updates for all topics that the group is interested in.
      * @param topics The topics to add to the group subscription
      */
+    //note: 更新 group 的订阅的 topic 信息
     public void groupSubscribe(Collection<String> topics) {
         if (this.subscriptionType == SubscriptionType.USER_ASSIGNED)
             throw new IllegalStateException(SUBSCRIPTION_EXCEPTION_MESSAGE);
@@ -155,6 +157,7 @@ public class SubscriptionState {
      * note this is different from {@link #assignFromSubscribed(Collection)}
      * whose input partitions are provided from the subscribed topics.
      */
+    //note: USER_ASSIGNED
     public void assignFromUser(Set<TopicPartition> partitions) {
         setSubscriptionType(SubscriptionType.USER_ASSIGNED);
 
@@ -177,6 +180,7 @@ public class SubscriptionState {
      * Change the assignment to the specified partitions returned from the coordinator,
      * note this is different from {@link #assignFromUser(Set)} which directly set the assignment from user inputs
      */
+    //note: 当使用 group 管理时,在 join-group 成功后,由 ConsumerCoordinator 调用, this.assignment 保存的是分配的 tp
     public void assignFromSubscribed(Collection<TopicPartition> assignments) {
         if (!this.partitionsAutoAssigned())
             throw new IllegalArgumentException("Attempt to dynamically assign partitions while manual assignment in use");
@@ -200,6 +204,7 @@ public class SubscriptionState {
         this.needsFetchCommittedOffsets = true;
     }
 
+    //note: 订阅那些满足一定规则的 topic, AUTO_PATTERN
     public void subscribe(Pattern pattern, ConsumerRebalanceListener listener) {
         if (listener == null)
             throw new IllegalArgumentException("RebalanceListener cannot be null");
@@ -258,6 +263,7 @@ public class SubscriptionState {
         return this.groupSubscription;
     }
 
+    //note: 确保当前分配的 tp 列表还包括这个 tp
     private TopicPartitionState assignedState(TopicPartition tp) {
         TopicPartitionState state = this.assignment.stateValue(tp);
         if (state == null)
@@ -273,6 +279,7 @@ public class SubscriptionState {
         return assignedState(tp).committed;
     }
 
+    //note: 进行 offset-commit 时,这个值为设置为 true
     public void needRefreshCommits() {
         this.needsFetchCommittedOffsets = true;
     }
@@ -384,6 +391,7 @@ public class SubscriptionState {
         return isAssigned(tp) && assignedState(tp).isFetchable();
     }
 
+    //note: 是否有一个有效的 position offset 值,它是用于标记下一次 fetch 的 offset
     public boolean hasValidPosition(TopicPartition tp) {
         return isAssigned(tp) && assignedState(tp).hasValidPosition();
     }
@@ -420,6 +428,7 @@ public class SubscriptionState {
         return map;
     }
 
+    //note: 记录 tp 的一些 offset 信息
     private static class TopicPartitionState {
         private Long position; // last consumed position
         private Long highWatermark; // the high watermark from last fetch
@@ -448,7 +457,7 @@ public class SubscriptionState {
             return position != null;
         }
 
-        private void seek(long offset) {
+        private void seek(long offset) {//note: seek 之后 resetStrategy 也会置为 null
             this.position = offset;
             this.resetStrategy = null;
         }

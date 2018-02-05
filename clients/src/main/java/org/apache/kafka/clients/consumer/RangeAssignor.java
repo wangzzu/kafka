@@ -59,10 +59,10 @@ public class RangeAssignor extends AbstractPartitionAssignor {
     //NOTE:
     public Map<String, List<TopicPartition>> assign(Map<String, Integer> partitionsPerTopic,
                                                     Map<String, List<String>> subscriptions) {
-        Map<String, List<String>> consumersPerTopic = consumersPerTopic(subscriptions);
+        Map<String, List<String>> consumersPerTopic = consumersPerTopic(subscriptions);//note: (topic, List<consumerId>)
         Map<String, List<TopicPartition>> assignment = new HashMap<>();
         for (String memberId : subscriptions.keySet())
-            assignment.put(memberId, new ArrayList<TopicPartition>());
+            assignment.put(memberId, new ArrayList<TopicPartition>());//note: 初始化
 
         for (Map.Entry<String, List<String>> topicEntry : consumersPerTopic.entrySet()) {
             String topic = topicEntry.getKey();
@@ -74,11 +74,17 @@ public class RangeAssignor extends AbstractPartitionAssignor {
 
             Collections.sort(consumersForTopic);
 
-            int numPartitionsPerConsumer = numPartitionsForTopic / consumersForTopic.size();
-            int consumersWithExtraPartition = numPartitionsForTopic % consumersForTopic.size();
+            //note: 假设 partition 有 7个,consumer 有5个
+            int numPartitionsPerConsumer = numPartitionsForTopic / consumersForTopic.size();//note: 1
+            int consumersWithExtraPartition = numPartitionsForTopic % consumersForTopic.size();//note: 2
 
             List<TopicPartition> partitions = AbstractPartitionAssignor.partitions(topic, numPartitionsForTopic);
             for (int i = 0, n = consumersForTopic.size(); i < n; i++) {
+                //note: i=0, start: 0, length: 2, topic-partition: p0,p1
+                //note: i=1, start: 2, length: 2, topic-partition: p2,p3
+                //note: i=2, start: 4, length: 1, topic-partition: p4
+                //note: i=3, start: 5, length: 1, topic-partition: p5
+                //note: i=4, start: 6, length: 1, topic-partition: p6
                 int start = numPartitionsPerConsumer * i + Math.min(i, consumersWithExtraPartition);
                 int length = numPartitionsPerConsumer + (i + 1 > consumersWithExtraPartition ? 0 : 1);
                 assignment.get(consumersForTopic.get(i)).addAll(partitions.subList(start, start + length));

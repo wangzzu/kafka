@@ -15,6 +15,7 @@ package org.apache.kafka.clients.consumer.internals;
 /**
  * A helper class for managing the heartbeat to the coordinator
  */
+//note: 管理向 coordinator 发送心跳
 public final class Heartbeat {
     private final long sessionTimeout;
     private final long heartbeatInterval;
@@ -88,6 +89,7 @@ public final class Heartbeat {
         return heartbeatInterval;
     }
 
+    // note: 更新心跳时间,一般是刚发送完心跳或者连接刚建立
     public void resetTimeouts(long now) {
         this.lastSessionReset = now;
         this.lastPoll = now;

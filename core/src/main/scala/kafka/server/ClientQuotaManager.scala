@@ -174,6 +174,7 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
    * @return Number of milliseconds to delay the response in case of Quota violation.
    *         Zero otherwise
    */
+  //note:
   def recordAndMaybeThrottle(sanitizedUser: String, clientId: String, value: Int, callback: Int => Unit): Int = {
     val clientQuotaEntity = quotaEntity(sanitizedUser, clientId)
     val clientSensors = getOrCreateQuotaSensors(clientQuotaEntity)
