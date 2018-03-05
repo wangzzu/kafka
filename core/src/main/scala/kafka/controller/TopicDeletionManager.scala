@@ -151,6 +151,11 @@ class TopicDeletionManager(controller: KafkaController,
    *    preferred replica election
    * @param topics Topics for which deletion can be resumed
    */
+  //note: 下面的情况发生时,将会触发 topic 从不可删除状态移除,topic 将会可以删除
+  //note: 1. 新的 broker 启动, 由于 broker 的启动,任何影响 topic 删除的 replica 就已经启动;
+  //note: 2. partition reassignment 完成;
+  //note: 3. partition 的 leader 选举完成。
+  //note: topic 删除恢复。
   def resumeDeletionForTopics(topics: Set[String] = Set.empty) {
     if(isDeleteTopicEnabled) {
       val topicsToResumeDeletion = topics & topicsToBeDeleted
@@ -190,6 +195,10 @@ class TopicDeletionManager(controller: KafkaController,
    * 3. preferred replica election in progress for some partitions of the topic
    * @param topics Topics that should be marked ineligible for deletion. No op if the topic is was not previously queued up for deletion
    */
+  //note: 将 topic 标记为不可删除,如果发生下面的情况:
+  //note: 1. 副本正在下线;
+  //note: 2. topic 的一些 partition 正在进行 partition reassignment;
+  //note: 3. topic 的一些 partition 还在进行 leader 选举期间。
   def markTopicIneligibleForDeletion(topics: Set[String]) {
     if(isDeleteTopicEnabled) {
       val newTopicsToHaltDeletion = topicsToBeDeleted & topics
