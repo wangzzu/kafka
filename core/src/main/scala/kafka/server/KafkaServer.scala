@@ -124,7 +124,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var kafkaController: KafkaController = null
 
-  val kafkaScheduler = new KafkaScheduler(config.backgroundThreads)
+  val kafkaScheduler = new KafkaScheduler(config.backgroundThreads) //note: 后台处理任务的线程数,默认是10个
 
   var kafkaHealthcheck: KafkaHealthcheck = null
   var metadataCache: MetadataCache = null
@@ -205,6 +205,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         notifyClusterListeners(kafkaMetricsReporters ++ reporters.asScala)
 
         /* start log manager */
+        //note: 启动日志管理线程
         logManager = createLogManager(zkUtils.zkClient, brokerState)
         logManager.startup()
 
@@ -639,22 +640,22 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
       topic -> LogConfig.fromProps(defaultProps, configs)
     }
     // read the log configurations from zookeeper
-    val cleanerConfig = CleanerConfig(numThreads = config.logCleanerThreads,
-                                      dedupeBufferSize = config.logCleanerDedupeBufferSize,
-                                      dedupeBufferLoadFactor = config.logCleanerDedupeBufferLoadFactor,
-                                      ioBufferSize = config.logCleanerIoBufferSize,
-                                      maxMessageSize = config.messageMaxBytes,
-                                      maxIoBytesPerSecond = config.logCleanerIoMaxBytesPerSecond,
-                                      backOffMs = config.logCleanerBackoffMs,
-                                      enableCleaner = config.logCleanerEnable)
-    new LogManager(logDirs = config.logDirs.map(new File(_)).toArray,
+    val cleanerConfig = CleanerConfig(numThreads = config.logCleanerThreads, //note: 日志清理线程数,默认是1
+                                      dedupeBufferSize = config.logCleanerDedupeBufferSize, //note: 日志清理使用的总内容,默认128MB
+                                      dedupeBufferLoadFactor = config.logCleanerDedupeBufferLoadFactor, //note:  buffer load factor
+                                      ioBufferSize = config.logCleanerIoBufferSize, //note:
+                                      maxMessageSize = config.messageMaxBytes, //note:
+                                      maxIoBytesPerSecond = config.logCleanerIoMaxBytesPerSecond, //note:
+                                      backOffMs = config.logCleanerBackoffMs, //note: 没有日志清理时的 sleep 时间,默认 15s
+                                      enableCleaner = config.logCleanerEnable) //note: 是否允许对 compact 日志进行清理
+    new LogManager(logDirs = config.logDirs.map(new File(_)).toArray, //note: 日志目录列表
                    topicConfigs = configs,
                    defaultConfig = defaultLogConfig,
                    cleanerConfig = cleanerConfig,
-                   ioThreads = config.numRecoveryThreadsPerDataDir,
+                   ioThreads = config.numRecoveryThreadsPerDataDir,//note: 每个日志目录在开始时用日志恢复以及关闭时日志flush的线程数,默认1
                    flushCheckMs = config.logFlushSchedulerIntervalMs,
-                   flushCheckpointMs = config.logFlushOffsetCheckpointIntervalMs,
-                   retentionCheckMs = config.logCleanupIntervalMs,
+                   flushCheckpointMs = config.logFlushOffsetCheckpointIntervalMs, //note: 更新 check-point 的频率,默认是60s
+                   retentionCheckMs = config.logCleanupIntervalMs, //note: log-cleaner 检查 topic 是否需要删除的频率,默认是5min
                    scheduler = kafkaScheduler,
                    brokerState = brokerState,
                    time = time)
