@@ -785,6 +785,7 @@ class Log(@volatile var dir: File,
    *
    * @return The newly rolled segment
    */
+  //note: 滚动创建日志
   def roll(expectedNextOffset: Long = 0): LogSegment = {
     val start = time.nanoseconds
     lock synchronized {
@@ -851,12 +852,13 @@ class Log(@volatile var dir: File,
       return
     debug("Flushing log '" + name + " up to offset " + offset + ", last flushed: " + lastFlushTime + " current time: " +
           time.milliseconds + " unflushed = " + unflushedMessages)
+    //note: 刷新检查点到最新偏移量之间的所有日志分段
     for(segment <- logSegments(this.recoveryPoint, offset))
-      segment.flush()
+      segment.flush()//note: 刷新数据文件和索引文件（调用操作系统的 fsync）
     lock synchronized {
       if(offset > this.recoveryPoint) {
         this.recoveryPoint = offset
-        lastflushedTime.set(time.milliseconds)
+        lastflushedTime.set(time.milliseconds)//note: 更新刷新时间
       }
     }
   }

@@ -55,6 +55,7 @@ class LogManager(val logDirs: Array[File],
                  scheduler: Scheduler,
                  val brokerState: BrokerState,
                  time: Time) extends Logging {
+  //note: 检查点表示日志已经刷新到磁盘的位置，主要是用于数据恢复
   val RecoveryPointCheckpointFile = "recovery-point-offset-checkpoint" //note: 检查点文件
   val LockFile = ".lock"
   val InitialTaskDelayMs = 30*1000
@@ -343,6 +344,7 @@ class LogManager(val logDirs: Array[File],
    * Write out the current recovery point for all logs to a text file in the log directory 
    * to avoid recovering the whole log on startup.
    */
+  //note：通常所有数据目录都会一起执行，不会专门操作某一个数据目录的检查点文件
   def checkpointRecoveryPointOffsets() {
     this.logDirs.foreach(checkpointLogsInDir)
   }
@@ -350,6 +352,7 @@ class LogManager(val logDirs: Array[File],
   /**
    * Make a checkpoint for all logs in provided directory.
    */
+  //note: 对数据目录下的所有日志（即所有分区），将其检查点写入检查点文件
   private def checkpointLogsInDir(dir: File): Unit = {
     val recoveryPoints = this.logsByDir.get(dir.toString)
     if (recoveryPoints.isDefined) {
@@ -502,6 +505,7 @@ class LogManager(val logDirs: Array[File],
   /**
    * Map of log dir to logs by topic and partitions in that dir
    */
+  //note: 根据数据目录对所有日志分组
   private def logsByDir = {
     this.logsByTopicPartition.groupBy {
       case (_, log) => log.dir.getParent
@@ -511,11 +515,13 @@ class LogManager(val logDirs: Array[File],
   /**
    * Flush any log which has exceeded its flush interval and has unwritten messages.
    */
+  //note: LogManager 启动时，会启动一个周期性调度任务，调度这个方法，定时刷新日志。
   private def flushDirtyLogs() = {
     debug("Checking for dirty logs to flush...")
 
     for ((topicPartition, log) <- logs) {
       try {
+        //note: 每个日志的刷新时间并不相同
         val timeSinceLastFlush = time.milliseconds - log.lastFlushTime
         debug("Checking if flush is needed on " + topicPartition.topic + " flush interval  " + log.config.flushMs +
               " last flushed " + log.lastFlushTime + " time since last flush: " + timeSinceLastFlush)
