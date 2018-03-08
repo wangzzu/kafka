@@ -480,6 +480,7 @@ class LogManager(val logDirs: Array[File],
    * Delete any eligible logs. Return the number of segments deleted.
    * Only consider logs that are not compacted.
    */
+  //note: 日志清除任务
   def cleanupLogs() {
     debug("Beginning log cleanup...")
     var total = 0

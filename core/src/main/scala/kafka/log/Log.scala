@@ -662,6 +662,8 @@ class Log(@volatile var dir: File,
    * @param predicate A function that takes in a single log segment and returns true iff it is deletable
    * @return The number of segments deleted
    */
+  //note: 清除相应的 segment 及相应的索引文件
+  //note: 其中 predicate 是一个高阶函数，只有返回值为 true 该 segment 才会被删除
   private def deleteOldSegments(predicate: LogSegment => Boolean): Int = {
     lock synchronized {
       val deletable = deletableSegments(predicate)
@@ -698,12 +700,14 @@ class Log(@volatile var dir: File,
     deleteRetenionMsBreachedSegments() + deleteRetentionSizeBreachedSegments()
   }
 
+  //note: 清除保存时间满足条件的 segment
   private def deleteRetenionMsBreachedSegments() : Int = {
     if (config.retentionMs < 0) return 0
     val startMs = time.milliseconds
     deleteOldSegments(startMs - _.largestTimestamp > config.retentionMs)
   }
 
+  //note: 清除保存大小满足条件的 segment
   private def deleteRetentionSizeBreachedSegments() : Int = {
     if (config.retentionSize < 0 || size < config.retentionSize) return 0
     var diff = size - config.retentionSize
@@ -970,8 +974,8 @@ class Log(@volatile var dir: File,
   private def deleteSegment(segment: LogSegment) {
     info("Scheduling log segment %d for log %s for deletion.".format(segment.baseOffset, name))
     lock synchronized {
-      segments.remove(segment.baseOffset)
-      asyncDeleteSegment(segment)
+      segments.remove(segment.baseOffset) //note:  从映射关系表中删除数据
+      asyncDeleteSegment(segment) //note: 异步删除日志 segment
     }
   }
 
@@ -981,12 +985,12 @@ class Log(@volatile var dir: File,
    * @throws KafkaStorageException if the file can't be renamed and still exists
    */
   private def asyncDeleteSegment(segment: LogSegment) {
-    segment.changeFileSuffixes("", Log.DeletedFileSuffix)
+    segment.changeFileSuffixes("", Log.DeletedFileSuffix) //note: 先将 segment 的数据文件和索引文件后缀添加 `.deleted`
     def deleteSeg() {
       info("Deleting segment %d from log %s.".format(segment.baseOffset, name))
       segment.delete()
     }
-    scheduler.schedule("delete-file", deleteSeg, delay = config.fileDeleteDelayMs)
+    scheduler.schedule("delete-file", deleteSeg, delay = config.fileDeleteDelayMs) //note: 异步调度进行删除
   }
 
   /**
