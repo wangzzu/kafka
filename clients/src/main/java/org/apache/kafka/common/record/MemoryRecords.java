@@ -190,6 +190,7 @@ public class MemoryRecords extends AbstractRecords {
         return buffer.duplicate();
     }
 
+    //note: 一个迭代器
     @Override
     public Iterable<ByteBufferLogEntry> shallowEntries() {
         return shallowEntries;
