@@ -106,6 +106,7 @@ class Log(@volatile var dir: File,
       0
   }
 
+  //note: nextOffsetMetadata 声明为 volatile，如果该值被修改，其他使用此变量的线程就可以立刻见到变化后的值，在生产和消费都会使用到这个值
   @volatile private var nextOffsetMetadata: LogOffsetMetadata = _
 
   /* the actual segments of the log */
@@ -350,7 +351,7 @@ class Log(@volatile var dir: File,
    * @return Information about the appended messages including the first and last offset.
    */
   def append(records: MemoryRecords, assignOffsets: Boolean = true): LogAppendInfo = {
-    val appendInfo = analyzeAndValidateRecords(records)
+    val appendInfo = analyzeAndValidateRecords(records) //note: 验证
 
     // if we have any valid messages, append them to the log
     if (appendInfo.shallowCount == 0)
@@ -365,8 +366,9 @@ class Log(@volatile var dir: File,
 
         if (assignOffsets) {
           // assign offsets to the message set
+          //note: 计算这个消息集起始 offset，对 offset 的操作是一个原子操作
           val offset = new LongRef(nextOffsetMetadata.messageOffset)
-          appendInfo.firstOffset = offset.value
+          appendInfo.firstOffset = offset.value //note: 作为消息集的第一个 offset
           val now = time.milliseconds
           val validateAndOffsetAssignResult = try {
             LogValidator.validateMessagesAndAssignOffsets(validRecords,
@@ -381,10 +383,11 @@ class Log(@volatile var dir: File,
           } catch {
             case e: IOException => throw new KafkaException("Error in validating messages while appending to log '%s'".format(name), e)
           }
+          //note: 基于起始 offset，计算每条消息的绝对 offset
           validRecords = validateAndOffsetAssignResult.validatedRecords
           appendInfo.maxTimestamp = validateAndOffsetAssignResult.maxTimestamp
           appendInfo.offsetOfMaxTimestamp = validateAndOffsetAssignResult.shallowOffsetOfMaxTimestamp
-          appendInfo.lastOffset = offset.value - 1
+          appendInfo.lastOffset = offset.value - 1 //note: 最后一条消息的 offset
           if (config.messageTimestampType == TimestampType.LOG_APPEND_TIME)
             appendInfo.logAppendTime = now
 
@@ -416,12 +419,14 @@ class Log(@volatile var dir: File,
         }
 
         // maybe roll the log if this segment is full
+        //note: 如果当前 segment 满了，就需要重新新建一个 segment
         val segment = maybeRoll(messagesSize = validRecords.sizeInBytes,
           maxTimestampInMessages = appendInfo.maxTimestamp,
           maxOffsetInMessages = appendInfo.lastOffset)
 
 
         // now append to the log
+        //note: 追加消息到当前 segment
         segment.append(firstOffset = appendInfo.firstOffset,
           largestOffset = appendInfo.lastOffset,
           largestTimestamp = appendInfo.maxTimestamp,
@@ -429,12 +434,13 @@ class Log(@volatile var dir: File,
           records = validRecords)
 
         // increment the log end offset
+        //note: 修改最新的 next_offset
         updateLogEndOffset(appendInfo.lastOffset + 1)
 
         trace("Appended message set to log %s with first offset: %d, next offset: %d, and messages: %s"
           .format(this.name, appendInfo.firstOffset, nextOffsetMetadata.messageOffset, validRecords))
 
-        if (unflushedMessages >= config.flushInterval)
+        if (unflushedMessages >= config.flushInterval)//note: 满足条件的话，刷新磁盘
           flush()
 
         appendInfo
@@ -461,23 +467,27 @@ class Log(@volatile var dir: File,
    * <li> Whether any compression codec is used (if many are used, then the last one is given)
    * </ol>
    */
+  //note: 对消息集进行验证，消息太大或者无效都会被抛弃
+  //note:
   private def analyzeAndValidateRecords(records: MemoryRecords): LogAppendInfo = {
-    var shallowMessageCount = 0
-    var validBytesCount = 0
+    var shallowMessageCount = 0 //note: msg 数量
+    var validBytesCount = 0 //note: 有效字节数
     var firstOffset = -1L
     var lastOffset = -1L
     var sourceCodec: CompressionCodec = NoCompressionCodec
-    var monotonic = true
+    var monotonic = true //note: 是否单调递增
     var maxTimestamp = Record.NO_TIMESTAMP
     var offsetOfMaxTimestamp = -1L
     for (entry <- records.shallowEntries.asScala) {
       // update the first offset if on the first message
+      //note: 在第一条消息中更新 firstOffset
       if(firstOffset < 0)
         firstOffset = entry.offset
       // check that offsets are monotonically increasing
       if(lastOffset >= entry.offset)
         monotonic = false
       // update the last offset seen
+      //note: 每循环一条 msg，就更新 lastOffset
       lastOffset = entry.offset
 
       val record = entry.record
@@ -492,7 +502,7 @@ class Log(@volatile var dir: File,
       }
 
       // check the validity of the message by checking CRC
-      record.ensureValid()
+      record.ensureValid() //note:  检查消息是否有效
       if (record.timestamp > maxTimestamp) {
         maxTimestamp = record.timestamp
         offsetOfMaxTimestamp = lastOffset
@@ -673,7 +683,7 @@ class Log(@volatile var dir: File,
         if (segments.size == numToDelete)
           roll()
         // remove the segments for lookups
-        deletable.foreach(deleteSegment)
+        deletable.foreach(deleteSegment) //note: 删除 segment
       }
       numToDelete
     }

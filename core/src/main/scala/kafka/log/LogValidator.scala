@@ -114,7 +114,7 @@ private[kafka] object LogValidator {
       val record = entry.record
       validateKey(record, compactedTopic)
 
-      val offset = offsetCounter.getAndIncrement()
+      val offset = offsetCounter.getAndIncrement() //note: offset 递增
       entry.setOffset(offset)
 
       if (record.magic > Record.MAGIC_VALUE_V0) {

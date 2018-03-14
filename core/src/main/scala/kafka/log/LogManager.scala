@@ -85,7 +85,10 @@ class LogManager(val logDirs: Array[File],
    * <li> Check that each path is a readable directory 
    * </ol>
    */
-  //note: 创建指定的数据目录,并做相应的检查: 1.确保数据目录中没有重复的数据目录; 2. 日志不存在的话就创建相应的目录; 3.检查每个目录路径是否是可读的。
+  //note: 创建指定的数据目录,并做相应的检查:
+  //note: 1.确保数据目录中没有重复的数据目录;
+  //note: 2.数据目录不存在的话就创建相应的目录;
+  //note: 3.检查每个目录路径是否是可读的。
   private def createAndValidateLogDirs(dirs: Seq[File]) {
     if(dirs.map(_.getCanonicalPath).toSet.size < dirs.size)
       throw new KafkaException("Duplicate log directory found: " + logDirs.mkString(", "))
@@ -125,7 +128,7 @@ class LogManager(val logDirs: Array[File],
     val threadPools = mutable.ArrayBuffer.empty[ExecutorService]
     val jobs = mutable.Map.empty[File, Seq[Future[_]]]
 
-    for (dir <- this.logDirs) { //note: 处理每一个目录
+    for (dir <- this.logDirs) { //note: 处理每一个日志目录
       val pool = Executors.newFixedThreadPool(ioThreads) //note: 默认为 1
       threadPools.append(pool) //note: 每个对应的数据目录都有一个线程池
 
@@ -161,8 +164,8 @@ class LogManager(val logDirs: Array[File],
           val config = topicConfigs.getOrElse(topicPartition.topic, defaultConfig)
           val logRecoveryPoint = recoveryPoints.getOrElse(topicPartition, 0L)
 
-          val current = new Log(logDir, config, logRecoveryPoint, scheduler, time)
-          if (logDir.getName.endsWith(Log.DeleteDirSuffix)) { //note 该目录被标记为删除
+          val current = new Log(logDir, config, logRecoveryPoint, scheduler, time)//note: 创建 Log 对象后，初始化时会加载所有的 segment
+          if (logDir.getName.endsWith(Log.DeleteDirSuffix)) { //note: 该目录被标记为删除
             this.logsToBeDeleted.add(current)
           } else {
             val previous = this.logs.put(topicPartition, current) //note: 创建日志后,加入日志管理的映射表
@@ -202,7 +205,7 @@ class LogManager(val logDirs: Array[File],
   def startup() {
     /* Schedule the cleanup task to delete old logs */
     if(scheduler != null) {
-      //note: 定时清理失效的日志 segment,并维护日志的大小
+      //note: 定时清理过期的日志 segment,并维护日志的大小
       info("Starting log cleanup with a period of %d ms.".format(retentionCheckMs))
       scheduler.schedule("kafka-log-retention",
                          cleanupLogs,
@@ -229,7 +232,7 @@ class LogManager(val logDirs: Array[File],
                          period = defaultConfig.fileDeleteDelayMs,
                          TimeUnit.MILLISECONDS)
     }
-    //note: 如果设置为 true,相同键值的消息只会保存为1条
+    //note: 如果设置为 true， 自动清理 compaction 类型的 topic
     if(cleanerConfig.enableCleaner)
       cleaner.startup()
   }
@@ -373,7 +376,7 @@ class LogManager(val logDirs: Array[File],
     logCreationOrDeletionLock synchronized {
       // create the log if it has not already been created in another thread
       getLog(topicPartition).getOrElse {
-        val dataDir = nextLogDir()
+        val dataDir = nextLogDir() //note: 获取日志存储目录
         val dir = new File(dataDir, topicPartition.topic + "-" + topicPartition.partition)
         dir.mkdirs()
         val log = new Log(dir, config, recoveryPoint = 0L, scheduler, time)
@@ -460,7 +463,7 @@ class LogManager(val logDirs: Array[File],
    * by calculating the number of partitions in each directory and then choosing the
    * data directory with the fewest partitions.
    */
-  //note: 选择 partition 数最少的那个 logDir
+  //note: 创建分区目录时默认选择 partition 数最少的那个 logDir
   private def nextLogDir(): File = {
     if(logDirs.size == 1) {
       logDirs(0)
@@ -487,7 +490,7 @@ class LogManager(val logDirs: Array[File],
     val startMs = time.milliseconds
     for(log <- allLogs; if !log.config.compact) {
       debug("Garbage collecting '" + log.name + "'")
-      total += log.deleteOldSegments()
+      total += log.deleteOldSegments() //note: 清理过期的 segment
     }
     debug("Log cleanup completed. " + total + " files deleted in " +
                   (time.milliseconds - startMs) / 1000 + " seconds")
