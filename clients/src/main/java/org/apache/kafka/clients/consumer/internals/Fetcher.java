@@ -674,7 +674,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener {
                     // Handle v1 and later response
                     log.debug("Handling ListOffsetResponse response for {}. Fetched offset {}, timestamp {}",
                             topicPartition, partitionData.offset, partitionData.timestamp);
-                    if (partitionData.offset != ListOffsetResponse.UNKNOWN_OFFSET) {
+                    if (partitionData.offset != ListOffsetResponse.UNKNOWN_OFFSET) { //NOTE: 如果 offset=-1 直接丢掉了
                         OffsetData offsetData = new OffsetData(partitionData.offset, partitionData.timestamp);
                         timestampOffsetMap.put(topicPartition, offsetData);
                     }
