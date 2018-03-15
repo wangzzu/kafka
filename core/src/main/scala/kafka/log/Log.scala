@@ -110,12 +110,16 @@ class Log(@volatile var dir: File,
   @volatile private var nextOffsetMetadata: LogOffsetMetadata = _
 
   /* the actual segments of the log */
+  //note: 日志管理了分区所有的日志分段，字典数据结构的 key 值是日志分段的基准偏移量
   private val segments: ConcurrentNavigableMap[java.lang.Long, LogSegment] = new ConcurrentSkipListMap[java.lang.Long, LogSegment]
   locally {
     val startMs = time.milliseconds
 
+    //note: 加载所有的日志分段，通常机器重启时操作的
     loadSegments()
     /* Calculate the offset of the next message */
+    //note: 下一个偏移量数据
+    //note: 第一个参数：下一条消息的偏移量；第二个参数：日志分段的基准偏移量；第三个参数：日志分段大小
     nextOffsetMetadata = new LogOffsetMetadata(activeSegment.nextOffset(), activeSegment.baseOffset,
       activeSegment.size.toInt)
 
@@ -745,11 +749,13 @@ class Log(@volatile var dir: File,
   /**
    * The offset metadata of the next message that will be appended to the log
    */
+  //note: 更多的是用于消费端，针对读取操作
   def logEndOffsetMetadata: LogOffsetMetadata = nextOffsetMetadata
 
   /**
    *  The offset of the next message that will be appended to the log
    */
+  //note: 下一条消息的 offset，从 nextOffsetMetadata 中获取的
   def logEndOffset: Long = nextOffsetMetadata.messageOffset
 
   /**
@@ -946,6 +952,7 @@ class Log(@volatile var dir: File,
   /**
    * The active segment that is currently taking appends
    */
+  //note: 任何时刻，只会有一个活动的日志分段
   def activeSegment = segments.lastEntry.getValue
 
   /**
@@ -1062,6 +1069,7 @@ class Log(@volatile var dir: File,
    *
    * @param segment The segment to add
    */
+  //note: 在这个 Log 中，添加分段到日志中
   def addSegment(segment: LogSegment) = this.segments.put(segment.baseOffset, segment)
 
 }
