@@ -68,9 +68,9 @@ class LogSegment(val log: FileRecords,
   @volatile private var offsetOfMaxTimestamp = timeIndex.lastEntry.offset
 
   def this(dir: File, startOffset: Long, indexIntervalBytes: Int, maxIndexSize: Int, rollJitterMs: Long, time: Time, fileAlreadyExists: Boolean = false, initFileSize: Int = 0, preallocate: Boolean = false) =
-    this(FileRecords.open(Log.logFilename(dir, startOffset), fileAlreadyExists, initFileSize, preallocate),
-         new OffsetIndex(Log.indexFilename(dir, startOffset), baseOffset = startOffset, maxIndexSize = maxIndexSize),
-         new TimeIndex(Log.timeIndexFilename(dir, startOffset), baseOffset = startOffset, maxIndexSize = maxIndexSize),
+    this(FileRecords.open(Log.logFilename(dir, startOffset), fileAlreadyExists, initFileSize, preallocate), //note: 创建新的数据文件
+         new OffsetIndex(Log.indexFilename(dir, startOffset), baseOffset = startOffset, maxIndexSize = maxIndexSize), //note: 创建新的索引文件
+         new TimeIndex(Log.timeIndexFilename(dir, startOffset), baseOffset = startOffset, maxIndexSize = maxIndexSize), //note: 创建新的时间索引文件
          startOffset,
          indexIntervalBytes,
          rollJitterMs,
@@ -97,6 +97,7 @@ class LogSegment(val log: FileRecords,
    * @param shallowOffsetOfMaxTimestamp The offset of the message that has the largest timestamp in the messages to append.
    * @param records The log entries to append.
    */
+   //note: 在指定的 offset 处追加指定的 msgs, 需要的情况下追加相应的索引
   @nonthreadsafe
   def append(firstOffset: Long, largestOffset: Long, largestTimestamp: Long, shallowOffsetOfMaxTimestamp: Long, records: MemoryRecords) {
     if (records.sizeInBytes > 0) {
@@ -107,7 +108,7 @@ class LogSegment(val log: FileRecords,
         rollingBasedTimestamp = Some(largestTimestamp)
       // append the messages
       require(canConvertToRelativeOffset(largestOffset), "largest offset in message set can not be safely converted to relative offset.")
-      val appendedBytes = log.append(records)
+      val appendedBytes = log.append(records) //note: 追加到数据文件中
       trace(s"Appended $appendedBytes to ${log.file()} at offset $firstOffset")
       // Update the in memory max timestamp and corresponding offset.
       if (largestTimestamp > maxTimestampSoFar) {
@@ -115,10 +116,11 @@ class LogSegment(val log: FileRecords,
         offsetOfMaxTimestamp = shallowOffsetOfMaxTimestamp
       }
       // append an entry to the index (if needed)
+      //note: 判断是否需要追加索引（数据每次都会添加到数据文件中,但不是每次都会添加索引的,间隔 indexIntervalBytes 大小才会写入一个索引文件）
       if(bytesSinceLastIndexEntry > indexIntervalBytes) {
-        index.append(firstOffset, physicalPosition)
+        index.append(firstOffset, physicalPosition) //note: 添加索引
         timeIndex.maybeAppend(maxTimestampSoFar, offsetOfMaxTimestamp)
-        bytesSinceLastIndexEntry = 0
+        bytesSinceLastIndexEntry = 0 //note: 重置为0
       }
       bytesSinceLastIndexEntry += records.sizeInBytes
     }
