@@ -45,6 +45,7 @@ private[kafka] object LogValidator {
    * Returns a ValidationAndOffsetAssignResult containing the validated message set, maximum timestamp, the offset
    * of the shallow message with the max timestamp and a boolean indicating whether the message sizes may have changed.
    */
+  //note: 验证 records,并安排相应的 offset 值
   private[kafka] def validateMessagesAndAssignOffsets(records: MemoryRecords,
                                                       offsetCounter: LongRef,
                                                       now: Long,
@@ -57,13 +58,16 @@ private[kafka] object LogValidator {
     if (sourceCodec == NoCompressionCodec && targetCodec == NoCompressionCodec) {
       // check the magic value
       if (!records.hasMatchingShallowMagic(messageFormatVersion))
+      //note:
         convertAndAssignOffsetsNonCompressed(records, offsetCounter, compactedTopic, now, messageTimestampType,
           messageTimestampDiffMaxMs, messageFormatVersion)
       else
+      //note:
         // Do in-place validation, offset assignment and maybe set timestamp
         assignOffsetsNonCompressed(records, offsetCounter, now, compactedTopic, messageTimestampType,
           messageTimestampDiffMaxMs)
     } else {
+      //note: 处理
       validateMessagesAndAssignOffsetsCompressed(records, offsetCounter, now, sourceCodec, targetCodec, compactedTopic,
         messageFormatVersion, messageTimestampType, messageTimestampDiffMaxMs)
     }
@@ -115,9 +119,9 @@ private[kafka] object LogValidator {
       validateKey(record, compactedTopic)
 
       val offset = offsetCounter.getAndIncrement() //note: offset 递增
-      entry.setOffset(offset)
+      entry.setOffset(offset) //note: 设置相应的 offset
 
-      if (record.magic > Record.MAGIC_VALUE_V0) {
+      if (record.magic > Record.MAGIC_VALUE_V0) {//note: 新版的会设置相应的时间戳
         validateTimestamp(record, now, timestampType, timestampDiffMaxMs)
 
         if (timestampType == TimestampType.LOG_APPEND_TIME)
@@ -231,6 +235,7 @@ private[kafka] object LogValidator {
    * This method validates the timestamps of a message.
    * If the message is using create time, this method checks if it is within acceptable range.
    */
+  //note: 检查 msg 的时间戳设置
   private def validateTimestamp(record: Record,
                                 now: Long,
                                 timestampType: TimestampType,

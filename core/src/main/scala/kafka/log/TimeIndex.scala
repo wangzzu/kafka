@@ -103,6 +103,7 @@ class TimeIndex(file: File,
    * @param skipFullCheck To skip checking whether the segment is full or not. We only skip the check when the segment
    *                      gets rolled or the segment is closed.
    */
+  //note:
   def maybeAppend(timestamp: Long, offset: Long, skipFullCheck: Boolean = false) {
     inLock(lock) {
       if (!skipFullCheck)

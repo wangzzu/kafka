@@ -155,6 +155,7 @@ public class FileRecords extends AbstractRecords implements Closeable {
      * @param records The records to append
      * @return the number of bytes written to the underlying file
      */
+    //note: 将数据存储到 buffer 中
     public int append(MemoryRecords records) throws IOException {
         int written = records.writeFullyTo(channel);
         size.getAndAdd(written);
