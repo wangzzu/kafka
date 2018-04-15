@@ -136,6 +136,7 @@ class LogSegment(val log: FileRecords,
    * @return The position in the log storing the message with the least offset >= the requested offset and the size of the
     *        message or null if no message meets this criteria.
    */
+  //note: 找到大于等于 offset 的第一条 msg 对应的物理位置信息
   @threadsafe
   private[log] def translateOffset(offset: Long, startingFilePosition: Int = 0): LogEntryPosition = {
     val mapping = index.lookup(offset)
@@ -155,6 +156,7 @@ class LogSegment(val log: FileRecords,
    * @return The fetched data and the offset metadata of the first message whose offset is >= startOffset,
    *         or null if the startOffset is larger than the largest offset in this log
    */
+  //note: 从 segment 中读取 msg
   @threadsafe
   def read(startOffset: Long, maxOffset: Option[Long], maxSize: Int, maxPosition: Long = size,
            minOneMessage: Boolean = false): FetchDataInfo = {
@@ -162,7 +164,7 @@ class LogSegment(val log: FileRecords,
       throw new IllegalArgumentException("Invalid max size for log read (%d)".format(maxSize))
 
     val logSize = log.sizeInBytes // this may change, need to save a consistent copy
-    val startOffsetAndSize = translateOffset(startOffset)
+    val startOffsetAndSize = translateOffset(startOffset) //note: 将起始偏移量转化为起始物理位置
 
     // if the start position is already off the end of the log, return null
     if (startOffsetAndSize == null)
@@ -180,6 +182,7 @@ class LogSegment(val log: FileRecords,
       return FetchDataInfo(offsetMetadata, MemoryRecords.EMPTY)
 
     // calculate the length of the message set to read based on whether or not they gave us a maxOffset
+    //note: 计算应该读取的 msg 的长度
     val length = maxOffset match {
       case None =>
         // no max offset, just read until the max position
