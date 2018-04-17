@@ -171,7 +171,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener {
      * an in-flight fetch or pending fetch data.
      * @return number of fetches sent
      */
-    //note: 向订阅的所有 partition （只要该 leader 暂时没有拉取请求）所在 leader 发送 fetch 请求
+    //note: 向订阅的所有 partition （只要该 leader 暂时没有拉取请求）所在 leader 发送 fetch请求
     public int sendFetches() {
         //note: 1 创建 Fetch Request
         Map<Node, FetchRequest.Builder> fetchRequestMap = createFetchRequests();

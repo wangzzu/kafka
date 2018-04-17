@@ -526,6 +526,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       // When this callback is triggered, the remote API call has completed
       request.apiRemoteCompleteTimeMs = time.milliseconds
 
+      //note: 限速的判断
       if (fetchRequest.isFromFollower) {
         // We've already evaluated against the quota and are good to go. Just need to record it now.
         val responseSize = sizeOfThrottledPartitions(versionId, fetchRequest, mergedPartitionData, quotas.leader)
@@ -541,6 +542,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     else {
       // call the replica manager to fetch messages from the local replica
       //note: 调用 ReplicaManger 从本地副本获取 msgs
+      //note: 从 replica 上拉取数据,满足条件后调用回调函数进行返回
       replicaManager.fetchMessages(
         fetchRequest.maxWait.toLong,
         fetchRequest.replicaId,

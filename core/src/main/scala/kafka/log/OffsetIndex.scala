@@ -82,13 +82,15 @@ class OffsetIndex(file: File, baseOffset: Long, maxIndexSize: Int = -1)
    *         If the target offset is smaller than the least entry in the index (or the index is empty),
    *         the pair (baseOffset, 0) is returned.
    */
+  //note: 查找小于等于指定 offset 的最大 offset,并且返回对应的 offset 和实际物理位置
   def lookup(targetOffset: Long): OffsetPosition = {
     maybeLock(lock) {
-      val idx = mmap.duplicate
-      val slot = indexSlotFor(idx, targetOffset, IndexSearchType.KEY)
+      val idx = mmap.duplicate //note: 查询时,mmap 会发生变化,先复制出来一个
+      val slot = indexSlotFor(idx, targetOffset, IndexSearchType.KEY) //note: 二分查找
       if(slot == -1)
         OffsetPosition(baseOffset, 0)
       else
+        //note: 先计算绝对偏移量,再计算物理位置
         parseEntry(idx, slot).asInstanceOf[OffsetPosition]
     }
   }
