@@ -282,6 +282,7 @@ class ReplicaFetcherThread(name: String,
     }
   }
 
+  //note: 构造 Fetch 请求
   protected def buildFetchRequest(partitionMap: Seq[(TopicPartition, PartitionFetchState)]): FetchRequest = {
     val requestMap = new util.LinkedHashMap[TopicPartition, JFetchRequest.PartitionData]
 
@@ -290,7 +291,7 @@ class ReplicaFetcherThread(name: String,
       if (partitionFetchState.isActive && !shouldFollowerThrottle(quota, topicPartition))
         requestMap.put(topicPartition, new JFetchRequest.PartitionData(partitionFetchState.offset, fetchSize))
     }
-
+    //note: 关键在于 setReplicaId 方法,设置了 replicaId,consumer 的该值为CONSUMER_REPLICA_ID（-1）
     val requestBuilder = new JFetchRequest.Builder(maxWait, minBytes, requestMap).
         setReplicaId(replicaId).setMaxBytes(maxBytes)
     requestBuilder.setVersion(fetchRequestVersion)

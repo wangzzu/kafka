@@ -138,9 +138,12 @@ class LogSegment(val log: FileRecords,
    * @return The position in the log storing the message with the least offset >= the requested offset and the size of the
     *        message or null if no message meets this criteria.
    */
+  //note: 根据
   @threadsafe
   private[log] def translateOffset(offset: Long, startingFilePosition: Int = 0): LogEntryPosition = {
+    //note: 获取离 offset 最新的物理位置,返回包括 offset 和物理位置（不是准确值）
     val mapping = index.lookup(offset)
+    //note: 从指定的位置开始消费,直到找到 offset 对应的实际物理位置,返回包括 offset 和物理位置（准确值）
     log.searchForOffsetWithSize(offset, max(mapping.position, startingFilePosition))
   }
 
@@ -158,12 +161,15 @@ class LogSegment(val log: FileRecords,
    *         or null if the startOffset is larger than the largest offset in this log
    */
   @threadsafe
+   //note: 读取日志分段（副本同步不会设置 maxSize）
   def read(startOffset: Long, maxOffset: Option[Long], maxSize: Int, maxPosition: Long = size,
            minOneMessage: Boolean = false): FetchDataInfo = {
     if (maxSize < 0)
       throw new IllegalArgumentException("Invalid max size for log read (%d)".format(maxSize))
 
+    //note: log 文件物理长度
     val logSize = log.sizeInBytes // this may change, need to save a consistent copy
+    //note: 将起始的 offset 转换为起始的实际物理位置
     val startOffsetAndSize = translateOffset(startOffset)
 
     // if the start position is already off the end of the log, return null
@@ -182,10 +188,13 @@ class LogSegment(val log: FileRecords,
       return FetchDataInfo(offsetMetadata, MemoryRecords.EMPTY)
 
     // calculate the length of the message set to read based on whether or not they gave us a maxOffset
+    //note: 计算读取的长度
     val length = maxOffset match {
+      //note: 副本同步时的计算方式
       case None =>
         // no max offset, just read until the max position
-        min((maxPosition - startPosition).toInt, adjustedMaxSize)
+        min((maxPosition - startPosition).toInt, adjustedMaxSize) //note: 直接读取到最大的位置
+      //note: consumer 拉取时,计算方式
       case Some(offset) =>
         // there is a max offset, translate it to a file position and use that to calculate the max read size;
         // when the leader of a partition changes, it's possible for the new leader's high watermark to be less than the
@@ -202,6 +211,7 @@ class LogSegment(val log: FileRecords,
         min(min(maxPosition, endPosition) - startPosition, adjustedMaxSize).toInt
     }
 
+    //note: 根据起始的物理位置和读取长度读取数据文件
     FetchDataInfo(offsetMetadata, log.read(startPosition, length),
       firstEntryIncomplete = adjustedMaxSize < startOffsetAndSize.size)
   }

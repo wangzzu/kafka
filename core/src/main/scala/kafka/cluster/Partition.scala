@@ -101,19 +101,20 @@ class Partition(val topic: String,
   def isUnderReplicated: Boolean =
     isLeaderReplicaLocal && inSyncReplicas.size < assignedReplicas.size
 
+  //note: 分区根据指定的副本编号创建副本（replica）
   def getOrCreateReplica(replicaId: Int = localBrokerId): Replica = {
     assignedReplicaMap.getAndMaybePut(replicaId, {
-      if (isReplicaLocal(replicaId)) {
+      if (isReplicaLocal(replicaId)) { //note: 本地的副本
         val config = LogConfig.fromProps(logManager.defaultConfig.originals,
                                          AdminUtils.fetchEntityConfig(zkUtils, ConfigType.Topic, topic))
-        val log = logManager.createLog(topicPartition, config)
-        val checkpoint = replicaManager.highWatermarkCheckpoints(log.dir.getParentFile.getAbsolutePath)
+        val log = logManager.createLog(topicPartition, config) //note: 获取 Log 对象,没有的话新建该实例
+        val checkpoint = replicaManager.highWatermarkCheckpoints(log.dir.getParentFile.getAbsolutePath) //note: 检查点文件
         val offsetMap = checkpoint.read
         if (!offsetMap.contains(topicPartition))
           info(s"No checkpointed highwatermark is found for partition $topicPartition")
         val offset = math.min(offsetMap.getOrElse(topicPartition, 0L), log.logEndOffset)
         new Replica(replicaId, this, time, offset, Some(log))
-      } else new Replica(replicaId, this, time)
+      } else new Replica(replicaId, this, time) //note: 远程的副本,不需要创建 Log 对象
     })
   }
 
@@ -232,12 +233,15 @@ class Partition(val topic: String,
   /**
    * Update the log end offset of a certain replica of this partition
    */
+  //note: 更新这个 partition replica 的 the end offset
   def updateReplicaLogReadResult(replicaId: Int, logReadResult: LogReadResult) {
     getReplica(replicaId) match {
       case Some(replica) =>
+        //note: 更新副本的信息
         replica.updateLogReadResult(logReadResult)
         // check if we need to expand ISR to include this replica
         // if it is not in the ISR yet
+        //note: 如果该副本不在 isr 中,检查是否需要进行更新
         maybeExpandIsr(replicaId, logReadResult)
 
         debug("Recorded replica %d log end offset (LEO) position %d for partition %s."

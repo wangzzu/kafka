@@ -31,10 +31,10 @@ class Replica(val brokerId: Int,
               initialHighWatermarkValue: Long = 0L,
               val log: Option[Log] = None) extends Logging {
   // the high watermark offset value, in non-leader replicas only its message offsets are kept
-  @volatile private[this] var highWatermarkMetadata = new LogOffsetMetadata(initialHighWatermarkValue)
+  @volatile private[this] var highWatermarkMetadata = new LogOffsetMetadata(initialHighWatermarkValue) //note: 水位
   // the log end offset value, kept in all replicas;
   // for local replica it is the log's end offset, for remote replicas its value is only updated by follower fetch
-  @volatile private[this] var logEndOffsetMetadata = LogOffsetMetadata.UnknownOffsetMetadata
+  @volatile private[this] var logEndOffsetMetadata = LogOffsetMetadata.UnknownOffsetMetadata //note: 偏移量元数据
 
   // The log end offset value at the time the leader received the last FetchRequest from this follower
   // This is used to determine the lastCaughtUpTimeMs of the follower
@@ -66,6 +66,7 @@ class Replica(val brokerId: Int,
    * fetch request is always smaller than the leader's LEO, which can happen if small produce requests are received at
    * high frequency.
    */
+  //note: 更新数据读取的结果,针对远程副本
   def updateLogReadResult(logReadResult : LogReadResult) {
     if (logReadResult.info.fetchOffsetMetadata.messageOffset >= logReadResult.leaderLogEndOffset)
       _lastCaughtUpTimeMs = math.max(_lastCaughtUpTimeMs, logReadResult.fetchTimeMs)
@@ -83,6 +84,7 @@ class Replica(val brokerId: Int,
     _lastCaughtUpTimeMs = lastCaughtUpTimeMs
   }
 
+  //note: 更新副本的偏移量元数据,只有远程副本可以更新（类似于 java 的 set 方法）
   private def logEndOffset_=(newLogEndOffset: LogOffsetMetadata) {
     if (isLocal) {
       throw new KafkaException(s"Should not set log end offset on partition $topicPartition's local replica $brokerId")
@@ -92,12 +94,14 @@ class Replica(val brokerId: Int,
     }
   }
 
+  //note: 获取副本的偏移量, 本地副本的话通过 Log 实例获取（get 方法）
   def logEndOffset =
     if (isLocal)
       log.get.logEndOffsetMetadata
     else
       logEndOffsetMetadata
 
+  //note: 设置副本的最高水位, 只有是本地副本才能设置
   def highWatermark_=(newHighWatermark: LogOffsetMetadata) {
     if (isLocal) {
       highWatermarkMetadata = newHighWatermark
@@ -107,8 +111,9 @@ class Replica(val brokerId: Int,
     }
   }
 
-  def highWatermark = highWatermarkMetadata
+  def highWatermark = highWatermarkMetadata //note: 获取副本的 HW
 
+  //note: 以最新的 HW 的 offset 读取数据
   def convertHWToLocalOffsetMetadata() = {
     if (isLocal) {
       highWatermarkMetadata = log.get.convertToOffsetMetadata(highWatermarkMetadata.messageOffset)

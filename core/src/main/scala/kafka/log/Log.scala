@@ -562,6 +562,7 @@ class Log(@volatile var dir: File,
    * @throws OffsetOutOfRangeException If startOffset is beyond the log end offset or before the base offset of the first segment.
    * @return The fetch data information including fetch starting offset metadata and messages read.
    */
+  //note: 从指定 offset 开始读取数据
   def read(startOffset: Long, maxLength: Int, maxOffset: Option[Long] = None, minOneMessage: Boolean = false): FetchDataInfo = {
     trace("Reading %d bytes from offset %d in log %s of length %d bytes".format(maxLength, startOffset, name, size))
 
@@ -572,6 +573,7 @@ class Log(@volatile var dir: File,
     if(startOffset == next)
       return FetchDataInfo(currentNextOffsetMetadata, MemoryRecords.EMPTY)
 
+    //note: 先查找对应的日志分段（segment）
     var entry = segments.floorEntry(startOffset)
 
     // attempt to read beyond the log end offset is an error
@@ -586,11 +588,15 @@ class Log(@volatile var dir: File,
       // the message is appended but before the nextOffsetMetadata is updated. In that case the second fetch may
       // cause OffsetOutOfRangeException. To solve that, we cap the reading up to exposed position instead of the log
       // end of the active segment.
+      //note: 如果 Fetch 请求刚好发生在 the active segment 上,当多个 Fetch 请求同时处理,如果 nextOffsetMetadata 更新不及时,可能会导致
+      //note: 发送 OffsetOutOfRangeException 异常; 为了解决这个问题, 这里能读取的最大位置是对应的物理位置（exposedPos）
+      //note: 而不是 the log end of the active segment.
       val maxPosition = {
         if (entry == segments.lastEntry) {
+          //note: nextOffsetMetadata 对应的实际物理位置
           val exposedPos = nextOffsetMetadata.relativePositionInSegment.toLong
           // Check the segment again in case a new segment has just rolled out.
-          if (entry != segments.lastEntry)
+          if (entry != segments.lastEntry) //note: 可能会有新的 segment 产生,所以需要再次判断
             // New log segment has rolled out, we can read up to the file end.
             entry.getValue.size
           else
@@ -599,8 +605,9 @@ class Log(@volatile var dir: File,
           entry.getValue.size
         }
       }
+      //note: 从 segment 中读取相应的数据
       val fetchInfo = entry.getValue.read(startOffset, maxOffset, maxLength, maxPosition, minOneMessage)
-      if(fetchInfo == null) {
+      if(fetchInfo == null) { //note: 如果该日志分段没有读取到数据,则读取更高的日志分段
         entry = segments.higherEntry(entry.getKey)
       } else {
         return fetchInfo
