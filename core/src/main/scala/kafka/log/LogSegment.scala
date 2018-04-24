@@ -293,6 +293,7 @@ class LogSegment(val log: FileRecords,
    * @return The number of log bytes truncated
    */
   @nonthreadsafe
+  //note: 将大于等于 targetOffset 的 index 和 log entry 删除
   def truncateTo(offset: Long): Int = {
     val mapping = translateOffset(offset)
     if (mapping == null)

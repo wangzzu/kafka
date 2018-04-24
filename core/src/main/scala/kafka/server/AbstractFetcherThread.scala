@@ -199,6 +199,7 @@ abstract class AbstractFetcherThread(name: String,
     }
   }
 
+  //note: 为该 fetcher 线程添加要拉取的 topic-partition 列表
   def addPartitions(partitionAndOffsets: Map[TopicPartition, Long]) {
     partitionMapLock.lockInterruptibly()
     try {

@@ -66,7 +66,7 @@ class Replica(val brokerId: Int,
    * fetch request is always smaller than the leader's LEO, which can happen if small produce requests are received at
    * high frequency.
    */
-  //note: 更新数据读取的结果,针对远程副本
+  //note: 更新数据读取的结果,针对远程副本,主要是更新远程副本的 logEndOffset 和 lastFetchTimeMs
   def updateLogReadResult(logReadResult : LogReadResult) {
     if (logReadResult.info.fetchOffsetMetadata.messageOffset >= logReadResult.leaderLogEndOffset)
       _lastCaughtUpTimeMs = math.max(_lastCaughtUpTimeMs, logReadResult.fetchTimeMs)
@@ -78,6 +78,7 @@ class Replica(val brokerId: Int,
     lastFetchTimeMs = logReadResult.fetchTimeMs
   }
 
+  //note: 更新 replica 上次拉取时的时间
   def resetLastCaughtUpTime(curLeaderLogEndOffset: Long, curTimeMs: Long, lastCaughtUpTimeMs: Long) {
     lastFetchLeaderLogEndOffset = curLeaderLogEndOffset
     lastFetchTimeMs = curTimeMs

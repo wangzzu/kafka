@@ -304,19 +304,21 @@ class LogManager(val logDirs: Array[File],
    *
    * @param partitionOffsets Partition logs that need to be truncated
    */
+  //note: 将 partition 的日志截断到指定的 offset,并且在 offset 上做 recovery point
   def truncateTo(partitionOffsets: Map[TopicPartition, Long]) {
     for ((topicPartition, truncateOffset) <- partitionOffsets) {
       val log = logs.get(topicPartition)
       // If the log does not exist, skip it
       if (log != null) {
         //May need to abort and pause the cleaning of the log, and resume after truncation is done.
-        val needToStopCleaner: Boolean = truncateOffset < log.activeSegment.baseOffset
+        val needToStopCleaner: Boolean = truncateOffset < log.activeSegment.baseOffset //note: 是否需要先停止 clean 操作
         if (needToStopCleaner && cleaner != null)
-          cleaner.abortAndPauseCleaning(topicPartition)
-        log.truncateTo(truncateOffset)
+          cleaner.abortAndPauseCleaning(topicPartition) //note: 停止对这个 partition clean 操作
+        log.truncateTo(truncateOffset) //note: 对大于等于 targetOffset 的数据和索引进行删除操作
         if (needToStopCleaner && cleaner != null) {
+          //note: 做恢复点 checkpoint
           cleaner.maybeTruncateCheckpoint(log.dir.getParentFile, topicPartition, log.activeSegment.baseOffset)
-          cleaner.resumeCleaning(topicPartition)
+          cleaner.resumeCleaning(topicPartition) //note: 重新开始已经暂停的操作
         }
       }
     }

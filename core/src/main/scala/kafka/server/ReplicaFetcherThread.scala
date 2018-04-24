@@ -75,6 +75,7 @@ class ReplicaFetcherThread(name: String,
   // we need to include both the broker id and the fetcher id
   // as the metrics tag to avoid metric name conflicts with
   // more than one fetcher thread to the same broker
+  //note: 创建 networkClient
   private val networkClient = {
     val channelBuilder = ChannelBuilders.clientChannelBuilder(
       brokerConfig.interBrokerSecurityProtocol,
@@ -113,11 +114,13 @@ class ReplicaFetcherThread(name: String,
   }
 
   // process fetched data
+  //note: 处理 fetch 的数据
   def processPartitionData(topicPartition: TopicPartition, fetchOffset: Long, partitionData: PartitionData) {
     try {
       val replica = replicaMgr.getReplica(topicPartition).get
       val records = partitionData.toRecords
 
+      //note: 检查 records
       maybeWarnIfOversizedRecords(records, topicPartition)
 
       if (fetchOffset != replica.logEndOffset.messageOffset)
@@ -125,14 +128,16 @@ class ReplicaFetcherThread(name: String,
       if (logger.isTraceEnabled)
         trace("Follower %d has replica log end offset %d for partition %s. Received %d messages and leader hw %d"
           .format(replica.brokerId, replica.logEndOffset.messageOffset, topicPartition, records.sizeInBytes, partitionData.highWatermark))
-      replica.log.get.append(records, assignOffsets = false)
+      replica.log.get.append(records, assignOffsets = false) //note: 将 fetch 的数据追加到 log 中
       if (logger.isTraceEnabled)
         trace("Follower %d has replica log end offset %d after appending %d bytes of messages for partition %s"
           .format(replica.brokerId, replica.logEndOffset.messageOffset, records.sizeInBytes, topicPartition))
+      //note: 更新 replica 的 hw（logEndOffset 在追加数据后也会立马进行修改)
       val followerHighWatermark = replica.logEndOffset.messageOffset.min(partitionData.highWatermark)
       // for the follower replica, we do not need to keep
       // its segment base offset the physical position,
       // these values will be computed upon making the leader
+      //note: 这个值主要是用在 leader replica 上的
       replica.highWatermark = new LogOffsetMetadata(followerHighWatermark)
       if (logger.isTraceEnabled)
         trace(s"Follower ${replica.brokerId} set replica high watermark for partition $topicPartition to $followerHighWatermark")
@@ -145,8 +150,10 @@ class ReplicaFetcherThread(name: String,
     }
   }
 
+  //note: 如果超出 bytes 限制,就会返回错误
   def maybeWarnIfOversizedRecords(records: MemoryRecords, topicPartition: TopicPartition): Unit = {
     // oversized messages don't cause replication to fail from fetch request version 3 (KIP-74)
+    //note: 如果 fetch request 的版本是3,那么是不会导致这个问题的
     if (fetchRequestVersion <= 2 && records.sizeInBytes > 0 && records.validBytes <= 0)
       error(s"Replication is failing due to a message that is greater than replica.fetch.max.bytes for partition $topicPartition. " +
         "This generally occurs when the max.message.bytes has been overridden to exceed this value and a suitably large " +
@@ -157,6 +164,7 @@ class ReplicaFetcherThread(name: String,
   /**
    * Handle a partition whose offset is out of range and return a new fetch offset.
    */
+  //note: 处理 offset out of range 的 topic-partition,返回一个新的 fetch offset
   def handleOffsetOutOfRange(topicPartition: TopicPartition): Long = {
     val replica = replicaMgr.getReplica(topicPartition).get
 
@@ -170,15 +178,17 @@ class ReplicaFetcherThread(name: String,
      *
      * There is a potential for a mismatch between the logs of the two replicas here. We don't fix this mismatch as of now.
      */
+    //note: 获取最新的 offset
     val leaderEndOffset: Long = earliestOrLatestOffset(topicPartition, ListOffsetRequest.LATEST_TIMESTAMP,
       brokerConfig.brokerId)
 
-    if (leaderEndOffset < replica.logEndOffset.messageOffset) {
+    if (leaderEndOffset < replica.logEndOffset.messageOffset) { //note: leaderEndOffset 小于 副本 LEO 的情况
       // Prior to truncating the follower's log, ensure that doing so is not disallowed by the configuration for unclean leader election.
       // This situation could only happen if the unclean election configuration for a topic changes while a replica is down. Otherwise,
       // we should never encounter this situation since a non-ISR leader cannot be elected if disallowed by the broker configuration.
+      //note: 这种情况只是发生在 unclear election 的情况下
       if (!LogConfig.fromProps(brokerConfig.originals, AdminUtils.fetchEntityConfig(replicaMgr.zkUtils,
-        ConfigType.Topic, topicPartition.topic)).uncleanLeaderElectionEnable) {
+        ConfigType.Topic, topicPartition.topic)).uncleanLeaderElectionEnable) { //note: 不允许 unclear elect 时,直接退出进程
         // Log a fatal error and shutdown the broker to ensure that data loss does not unexpectedly occur.
         fatal("Exiting because log truncation is not allowed for partition %s,".format(topicPartition) +
           " Current leader %d's latest offset %d is less than replica %d's latest offset %d"
@@ -186,11 +196,17 @@ class ReplicaFetcherThread(name: String,
         System.exit(1)
       }
 
+      //note: warn 日志信息
       warn("Replica %d for partition %s reset its fetch offset from %d to current leader %d's latest offset %d"
         .format(brokerConfig.brokerId, topicPartition, replica.logEndOffset.messageOffset, sourceBroker.id, leaderEndOffset))
+      //note: 进行截断操作,将offset 大于等于targetOffset 的数据和索引删除
       replicaMgr.logManager.truncateTo(Map(topicPartition -> leaderEndOffset))
       leaderEndOffset
-    } else {
+    } else { //note: leader 的 LEO 大于 follower 的 LEO 的情况下,还发生了 OutOfRange
+      //note: 1. follower 下线了很久,其 LEO 已经小于了 leader 的 StartOffset;
+      //note: 2. 脏选举发生时, 如果 old leader 的 HW 大于 new leader 的 LEO,此时 old leader 回溯到 HW,并且这个位置开始拉取数据发生了 Out of range
+      //note:    当这个方法调用时,随着 produce 持续产生数据,可能出现 leader LEO 大于 Follower LEO 的情况（不做任何处理,重试即可解决,但
+      //note:    无法保证数据的一致性）。
       /**
        * If the leader's log end offset is greater than the follower's log end offset, there are two possibilities:
        * 1. The follower could have been down for a long time and when it starts up, its end offset could be smaller than the leader's
@@ -213,13 +229,15 @@ class ReplicaFetcherThread(name: String,
        * and the current leader's log start offset.
        *
        */
+      //note:
       val leaderStartOffset: Long = earliestOrLatestOffset(topicPartition, ListOffsetRequest.EARLIEST_TIMESTAMP,
         brokerConfig.brokerId)
       warn("Replica %d for partition %s reset its fetch offset from %d to current leader %d's start offset %d"
         .format(brokerConfig.brokerId, topicPartition, replica.logEndOffset.messageOffset, sourceBroker.id, leaderStartOffset))
       val offsetToFetch = Math.max(leaderStartOffset, replica.logEndOffset.messageOffset)
       // Only truncate log when current leader's log start offset is greater than follower's log end offset.
-      if (leaderStartOffset > replica.logEndOffset.messageOffset)
+      if (leaderStartOffset > replica.logEndOffset.messageOffset) //note: 如果 leader 的 startOffset 大于副本的最大 offset
+        //note: 将这个 log 的数据全部清空,并且从 leaderStartOffset 开始拉取数据
         replicaMgr.logManager.truncateFullyAndStartAt(topicPartition, leaderStartOffset)
       offsetToFetch
     }
@@ -257,19 +275,20 @@ class ReplicaFetcherThread(name: String,
 
   }
 
+  //note: 根据 时间戳 获取 topic——partition 最新或者最旧的 offset
   private def earliestOrLatestOffset(topicPartition: TopicPartition, earliestOrLatest: Long, consumerId: Int): Long = {
     val requestBuilder = if (brokerConfig.interBrokerProtocolVersion >= KAFKA_0_10_1_IV2) {
         val partitions = Map(topicPartition -> (earliestOrLatest: java.lang.Long))
         new ListOffsetRequest.Builder(consumerId).
             setTargetTimes(partitions.asJava).
-            setVersion(1)
+            setVersion(1) //note: 不同的版本
       } else {
         val partitions = Map(topicPartition -> new ListOffsetRequest.PartitionData(earliestOrLatest, 1))
         new ListOffsetRequest.Builder(consumerId).
             setOffsetData(partitions.asJava).
             setVersion(0)
       }
-    val clientResponse = sendRequest(requestBuilder)
+    val clientResponse = sendRequest(requestBuilder) //note: 发送请求
     val response = clientResponse.responseBody.asInstanceOf[ListOffsetResponse]
     val partitionData = response.responseData.get(topicPartition)
     Errors.forCode(partitionData.errorCode) match {

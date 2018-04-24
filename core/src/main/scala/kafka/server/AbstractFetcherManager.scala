@@ -64,27 +64,34 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
   Map("clientId" -> clientId)
   )
 
+  //note: 获取分配到这个 topic-partition 的 fetcher 线程 id
   private def getFetcherId(topic: String, partitionId: Int) : Int = {
     Utils.abs(31 * topic.hashCode() + partitionId) % numFetchers
   }
 
   // to be defined in subclass to create a specific fetcher
+  //note: 创建 replica-fetch 线程
   def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): AbstractFetcherThread
 
+  //note: 为一个 topic-partition 添加 replica-fetch 线程
   def addFetcherForPartitions(partitionAndOffsets: Map[TopicPartition, BrokerAndInitialOffset]) {
     mapLock synchronized {
+      //note: 为这些 topic-partition 分配相应的 fetch 线程 id
       val partitionsPerFetcher = partitionAndOffsets.groupBy { case(topicPartition, brokerAndInitialOffset) =>
         BrokerAndFetcherId(brokerAndInitialOffset.broker, getFetcherId(topicPartition.topic, topicPartition.partition))}
       for ((brokerAndFetcherId, partitionAndOffsets) <- partitionsPerFetcher) {
+        //note: 为 BrokerAndFetcherId 构造 fetcherThread 线程
         var fetcherThread: AbstractFetcherThread = null
         fetcherThreadMap.get(brokerAndFetcherId) match {
           case Some(f) => fetcherThread = f
           case None =>
+            //note: 创建 fetcher 线程
             fetcherThread = createFetcherThread(brokerAndFetcherId.fetcherId, brokerAndFetcherId.broker)
             fetcherThreadMap.put(brokerAndFetcherId, fetcherThread)
             fetcherThread.start
         }
 
+        //note: 添加 topic-partition 列表
         fetcherThreadMap(brokerAndFetcherId).addPartitions(partitionAndOffsets.map { case (tp, brokerAndInitOffset) =>
           tp -> brokerAndInitOffset.initOffset
         })
@@ -95,9 +102,10 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
       "[" + topicPartition + ", initOffset " + brokerAndInitialOffset.initOffset + " to broker " + brokerAndInitialOffset.broker + "] "}))
   }
 
+  //note: 删除一个 partition 的 replica-fetch 线程
   def removeFetcherForPartitions(partitions: Set[TopicPartition]) {
     mapLock synchronized {
-      for (fetcher <- fetcherThreadMap.values)
+      for (fetcher <- fetcherThreadMap.values) //note: 遍历所有的 fetchThread 去移除这个 topic-partition 集合
         fetcher.removePartitions(partitions)
     }
     info("Removed fetcher for partitions %s".format(partitions.mkString(",")))

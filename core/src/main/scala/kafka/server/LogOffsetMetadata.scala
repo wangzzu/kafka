@@ -75,6 +75,7 @@ case class LogOffsetMetadata(messageOffset: Long,
   }
 
   // decide if the offset metadata only contains message offset info
+  //note: 判断 offset metadata 是否仅仅包括 msg offset info
   def messageOffsetOnly(): Boolean = {
     segmentBaseOffset == LogOffsetMetadata.UnknownSegBaseOffset && relativePositionInSegment == LogOffsetMetadata.UnknownFilePosition
   }

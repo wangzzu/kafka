@@ -121,6 +121,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       request.apiLocalCompleteTimeMs = time.milliseconds
   }
 
+  //note: LeaderAndIsr 请求的处理
   def handleLeaderAndIsrRequest(request: RequestChannel.Request) {
     // ensureTopicExists is only for client facing requests
     // We can't have the ensureTopicExists check here since the controller sends it as an advisory to all brokers so they
@@ -144,7 +145,8 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
 
       val leaderAndIsrResponse =
-        if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {
+        if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {//note: 有权限的情况下
+          //note: replicaManager 进行相应的处理
           val result = replicaManager.becomeLeaderOrFollower(correlationId, leaderAndIsrRequest, metadataCache, onLeadershipChange)
           new LeaderAndIsrResponse(result.errorCode, result.responseMap.mapValues(new JShort(_)).asJava)
         } else {

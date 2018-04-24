@@ -915,6 +915,7 @@ class Log(@volatile var dir: File,
    *
    * @param targetOffset The offset to truncate to, an upper bound on all offsets in the log after truncation is complete.
    */
+  //note: 对 log 进行阶段使得 targetOffsest 小于 the end offset
   private[log] def truncateTo(targetOffset: Long) {
     info("Truncating log %s to offset %d.".format(name, targetOffset))
     if(targetOffset < 0)
@@ -924,13 +925,14 @@ class Log(@volatile var dir: File,
       return
     }
     lock synchronized {
-      if(segments.firstEntry.getValue.baseOffset > targetOffset) {
-        truncateFullyAndStartAt(targetOffset)
+      if(segments.firstEntry.getValue.baseOffset > targetOffset) { //note: segment list 中第一个 segment 都大于 targetOffset
+        truncateFullyAndStartAt(targetOffset) //note: 删除全部的 segment,然后以 targetOffset 新开始一个 segment
       } else {
+        //note: 先把 segment 的 baseOffset 大于 targetOffset 的 segment 找到
         val deletable = logSegments.filter(segment => segment.baseOffset > targetOffset)
-        deletable.foreach(deleteSegment)
-        activeSegment.truncateTo(targetOffset)
-        updateLogEndOffset(targetOffset)
+        deletable.foreach(deleteSegment) //note: 删除这些 segment
+        activeSegment.truncateTo(targetOffset) //note: 删除当前 segment 中大于等于 targetOffset 的数据和索引
+        updateLogEndOffset(targetOffset) //note: 更新 LEO
         this.recoveryPoint = math.min(targetOffset, this.recoveryPoint)
       }
     }
