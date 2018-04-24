@@ -281,6 +281,7 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
+  //note: 获取 tp 的 leader replica
   def getLeaderReplicaIfLocal(topicPartition: TopicPartition): Replica =  {
     val partitionOpt = getPartition(topicPartition) //note: 获取对应的 Partiion 对象
     partitionOpt match {
@@ -450,9 +451,9 @@ class ReplicaManager(val config: KafkaConfig,
    */
   //note: 从 leader 拉取数据,等待拉取到足够的数据或者达到 timeout 时间后返回拉取的结果
   def fetchMessages(timeout: Long,
-                    replicaId: Int,
-                    fetchMinBytes: Int,
-                    fetchMaxBytes: Int,
+                    replicaId: Int, //note: 副本的编号，如果来自 consumer，则没有该编号
+                    fetchMinBytes: Int, //note: 最小拉取字节数
+                    fetchMaxBytes: Int, //note: 最大拉取字节数
                     hardMaxBytesLimit: Boolean,
                     fetchInfos: Seq[(TopicPartition, PartitionData)],
                     quota: ReplicaQuota = UnboundedQuota,
@@ -481,8 +482,8 @@ class ReplicaManager(val config: KafkaConfig,
       updateFollowerLogReadResults(replicaId, logReadResults)
 
     // check if this fetch request can be satisfied right away
-    val logReadResultValues = logReadResults.map { case (_, v) => v }
-    val bytesReadable = logReadResultValues.map(_.info.records.sizeInBytes).sum
+    val logReadResultValues = logReadResults.map { case (_, v) => v } //note: 获取结果的 value 值
+    val bytesReadable = logReadResultValues.map(_.info.records.sizeInBytes).sum //note: 获取 bytes 大小
     val errorReadingData = logReadResultValues.foldLeft(false) ((errorIncurred, readResult) =>
       errorIncurred || (readResult.error != Errors.NONE))
 
@@ -553,6 +554,7 @@ class ReplicaManager(val config: KafkaConfig,
           getReplicaOrException(tp)
 
         // decide whether to only fetch committed data (i.e. messages below high watermark)
+        //note: 获取 max_offset 值（如果 readOnlyCommitted 为 true，返回 HW）
         //note: 获取 hw 位置,副本同步不需要
         val maxOffsetOpt = if (readOnlyCommitted)
           Some(localReplica.highWatermark.messageOffset)
@@ -565,11 +567,13 @@ class ReplicaManager(val config: KafkaConfig,
          * where data gets appended to the log immediately after the replica has consumed from it
          * This can cause a replica to always be out of sync.
          */
+        //note: Replica 的相关 offset 信息
         val initialLogEndOffset = localReplica.logEndOffset.messageOffset //note: the end offset
         val initialHighWatermark = localReplica.highWatermark.messageOffset //note: hw
         val fetchTimeMs = time.milliseconds
         val logReadInfo = localReplica.log match {
           case Some(log) =>
+            //note: partition fetch size 的最大值
             val adjustedFetchSize = math.min(partitionFetchSize, limitBytes)
 
             // Try the read first, this tells us whether we need all of adjustedFetchSize for this partition

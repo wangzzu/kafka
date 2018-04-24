@@ -563,6 +563,9 @@ class Log(@volatile var dir: File,
    * @return The fetch data information including fetch starting offset metadata and messages read.
    */
   //note: 从指定 offset 开始读取数据
+  //note: startOffset：拉取请求的起始偏移量，日志根据这个起始偏移量查找对应的日志分段；
+  //note: maxLength：拉取请求中设置的拉取大小，默认是 1MB；
+  //note: maxOffset：最大偏移量，consumer 拉取时会有这个值一般是 HW 的值，允许拉取的最大 offset；
   def read(startOffset: Long, maxLength: Int, maxOffset: Option[Long] = None, minOneMessage: Boolean = false): FetchDataInfo = {
     trace("Reading %d bytes from offset %d in log %s of length %d bytes".format(maxLength, startOffset, name, size))
 
@@ -570,7 +573,7 @@ class Log(@volatile var dir: File,
     // We create the local variables to avoid race conditions with updates to the log.
     val currentNextOffsetMetadata = nextOffsetMetadata
     val next = currentNextOffsetMetadata.messageOffset
-    if(startOffset == next)
+    if(startOffset == next) //note: 已经赶上最新的位置
       return FetchDataInfo(currentNextOffsetMetadata, MemoryRecords.EMPTY)
 
     //note: 先查找对应的日志分段（segment）
@@ -588,6 +591,7 @@ class Log(@volatile var dir: File,
       // the message is appended but before the nextOffsetMetadata is updated. In that case the second fetch may
       // cause OffsetOutOfRangeException. To solve that, we cap the reading up to exposed position instead of the log
       // end of the active segment.
+      //note: maxPosition：它是文件的物理位置，不是偏移量，主要是在真正读取数据文件时使用，作为读取长度限制，也就是这个 segment 最大的物理位置
       //note: 如果 Fetch 请求刚好发生在 the active segment 上,当多个 Fetch 请求同时处理,如果 nextOffsetMetadata 更新不及时,可能会导致
       //note: 发送 OffsetOutOfRangeException 异常; 为了解决这个问题, 这里能读取的最大位置是对应的物理位置（exposedPos）
       //note: 而不是 the log end of the active segment.

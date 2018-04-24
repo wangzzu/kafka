@@ -138,7 +138,7 @@ class LogSegment(val log: FileRecords,
    * @return The position in the log storing the message with the least offset >= the requested offset and the size of the
     *        message or null if no message meets this criteria.
    */
-  //note: 根据
+  //note: 找到大于等于 offset 的第一条 msg 对应的物理位置信息
   @threadsafe
   private[log] def translateOffset(offset: Long, startingFilePosition: Int = 0): LogEntryPosition = {
     //note: 获取离 offset 最新的物理位置,返回包括 offset 和物理位置（不是准确值）
@@ -160,6 +160,7 @@ class LogSegment(val log: FileRecords,
    * @return The fetched data and the offset metadata of the first message whose offset is >= startOffset,
    *         or null if the startOffset is larger than the largest offset in this log
    */
+  //note: 从 segment 中读取 msg
   @threadsafe
    //note: 读取日志分段（副本同步不会设置 maxSize）
   def read(startOffset: Long, maxOffset: Option[Long], maxSize: Int, maxPosition: Long = size,
