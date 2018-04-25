@@ -89,18 +89,19 @@ abstract class AbstractFetcherThread(name: String,
 
   override def doWork() {
 
+    //note: 构造 fetch request
     val fetchRequest = inLock(partitionMapLock) {
       val fetchRequest = buildFetchRequest(partitionStates.partitionStates.asScala.map { state =>
         state.topicPartition -> state.value
       })
-      if (fetchRequest.isEmpty) {
+      if (fetchRequest.isEmpty) { //note: 如果没有活跃的 partition，在下次调用之前，sleep fetchBackOffMs 时间
         trace("There are no active partitions. Back off for %d ms before sending a fetch request".format(fetchBackOffMs))
         partitionMapCond.await(fetchBackOffMs, TimeUnit.MILLISECONDS)
       }
       fetchRequest
     }
     if (!fetchRequest.isEmpty)
-      processFetchRequest(fetchRequest)
+      processFetchRequest(fetchRequest) //note: 发送 fetch 请求，处理 fetch 的结果
   }
 
   private def processFetchRequest(fetchRequest: REQ) {
@@ -115,12 +116,12 @@ abstract class AbstractFetcherThread(name: String,
 
     try {
       trace("Issuing to broker %d of fetch request %s".format(sourceBroker.id, fetchRequest))
-      responseData = fetch(fetchRequest)
+      responseData = fetch(fetchRequest) //note: 发送 fetch 请求，获取 fetch 结果
     } catch {
       case t: Throwable =>
         if (isRunning.get) {
           warn(s"Error in fetch $fetchRequest", t)
-          inLock(partitionMapLock) {
+          inLock(partitionMapLock) { //note: fetch 时发生错误，sleep 一会
             partitionStates.partitionSet.asScala.foreach(updatePartitionsWithError)
             // there is an error occurred while fetching partitions, sleep a while
             // note that `ReplicaFetcherThread.handlePartitionsWithError` will also introduce the same delay for every
@@ -131,7 +132,7 @@ abstract class AbstractFetcherThread(name: String,
     }
     fetcherStats.requestRate.mark()
 
-    if (responseData.nonEmpty) {
+    if (responseData.nonEmpty) { //note: fetch 结果不为空
       // process fetched data
       inLock(partitionMapLock) {
 
@@ -140,6 +141,7 @@ abstract class AbstractFetcherThread(name: String,
           val partitionId = topicPartition.partition
           Option(partitionStates.stateValue(topicPartition)).foreach(currentPartitionFetchState =>
             // we append to the log if the current offset is defined and it is the same as the offset requested during fetch
+            //note: 如果 fetch 的 offset 与返回结果的 offset 相同，并且返回没有异常，那么就将拉取的数据追加到对应的 partition 上
             if (fetchRequest.offset(topicPartition) == currentPartitionFetchState.offset) {
               Errors.forCode(partitionData.errorCode) match {
                 case Errors.NONE =>

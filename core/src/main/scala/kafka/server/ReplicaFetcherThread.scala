@@ -229,7 +229,6 @@ class ReplicaFetcherThread(name: String,
        * and the current leader's log start offset.
        *
        */
-      //note:
       val leaderStartOffset: Long = earliestOrLatestOffset(topicPartition, ListOffsetRequest.EARLIEST_TIMESTAMP,
         brokerConfig.brokerId)
       warn("Replica %d for partition %s reset its fetch offset from %d to current leader %d's start offset %d"
@@ -248,6 +247,7 @@ class ReplicaFetcherThread(name: String,
     delayPartitions(partitions, brokerConfig.replicaFetchBackoffMs.toLong)
   }
 
+  //note: 发送 fetch 请求，获取拉取结果
   protected def fetch(fetchRequest: FetchRequest): Seq[(TopicPartition, PartitionData)] = {
     val clientResponse = sendRequest(fetchRequest.underlying)
     val fetchResponse = clientResponse.responseBody.asInstanceOf[FetchResponse]
@@ -256,6 +256,7 @@ class ReplicaFetcherThread(name: String,
     }
   }
 
+  //note: 发送请求
   private def sendRequest(requestBuilder: AbstractRequest.Builder[_ <: AbstractRequest]): ClientResponse = {
     import kafka.utils.NetworkClientBlockingOps._
     try {
@@ -264,7 +265,7 @@ class ReplicaFetcherThread(name: String,
       else {
         val clientRequest = networkClient.newClientRequest(sourceBroker.id.toString, requestBuilder,
           time.milliseconds(), true)
-        networkClient.blockingSendAndReceive(clientRequest)(time)
+        networkClient.blockingSendAndReceive(clientRequest)(time) //note: 阻塞直到获取返回结果
       }
     }
     catch {
