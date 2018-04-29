@@ -114,7 +114,7 @@ class ReplicaFetcherThread(name: String,
   }
 
   // process fetched data
-  //note: 处理 fetch 的数据
+  //note: 处理 fetch 的数据，将 fetch 的数据追加的日志文件中
   def processPartitionData(topicPartition: TopicPartition, fetchOffset: Long, partitionData: PartitionData) {
     try {
       val replica = replicaMgr.getReplica(topicPartition).get
@@ -243,6 +243,7 @@ class ReplicaFetcherThread(name: String,
   }
 
   // any logic for partitions whose leader has changed
+  //note: 对于拉取遇到的错误的 partition，进行 delayPartitions 操作，延迟 1s 后再处理
   def handlePartitionsWithErrors(partitions: Iterable[TopicPartition]) {
     delayPartitions(partitions, brokerConfig.replicaFetchBackoffMs.toLong)
   }

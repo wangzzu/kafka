@@ -52,6 +52,7 @@ abstract class AbstractFetcherThread(name: String,
   type REQ <: FetchRequest
   type PD <: PartitionData
 
+  //note: 记录 fetch 相关的信息
   private val partitionStates = new PartitionStates[PartitionFetchState]
   private val partitionMapLock = new ReentrantLock
   private val partitionMapCond = partitionMapLock.newCondition()
@@ -152,13 +153,15 @@ abstract class AbstractFetcherThread(name: String,
 
                     fetcherLagStats.getAndMaybePut(topic, partitionId).lag = Math.max(0L, partitionData.highWatermark - newOffset)
                     // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread
+                    //note: 将 fetch 的数据追加到日志文件中
                     processPartitionData(topicPartition, currentPartitionFetchState.offset, partitionData)
 
                     val validBytes = records.validBytes
                     if (validBytes > 0) {
                       // Update partitionStates only if there is no exception during processPartitionData
+                      //note: 更新 fetch 的 offset 位置
                       partitionStates.updateAndMoveToEnd(topicPartition, new PartitionFetchState(newOffset))
-                      fetcherStats.byteRate.mark(validBytes)
+                      fetcherStats.byteRate.mark(validBytes) //note: 更新 metrics
                     }
                   } catch {
                     case ime: CorruptRecordException =>
@@ -166,24 +169,26 @@ abstract class AbstractFetcherThread(name: String,
                       // 1. If there is a corrupt message in a topic partition, it does not bring the fetcher thread down and cause other topic partition to also lag
                       // 2. If the message is corrupt due to a transient state in the log (truncation, partial writes can cause this), we simply continue and
                       // should get fixed in the subsequent fetches
+                      //note: CRC 验证失败时，打印日志，并继续进行（这个线程还会有其他的 tp 拉取，防止影响其他副本同步）
                       logger.error("Found invalid messages during fetch for partition [" + topic + "," + partitionId + "] offset " + currentPartitionFetchState.offset  + " error " + ime.getMessage)
                       updatePartitionsWithError(topicPartition);
                     case e: Throwable =>
+                      //note: 这里还会抛出异常，是 RUNTimeException
                       throw new KafkaException("error processing data for partition [%s,%d] offset %d"
                         .format(topic, partitionId, currentPartitionFetchState.offset), e)
                   }
-                case Errors.OFFSET_OUT_OF_RANGE =>
+                case Errors.OFFSET_OUT_OF_RANGE => //note: Out-of-range 的情况处理
                   try {
                     val newOffset = handleOffsetOutOfRange(topicPartition)
                     partitionStates.updateAndMoveToEnd(topicPartition, new PartitionFetchState(newOffset))
                     error("Current offset %d for partition [%s,%d] out of range; reset offset to %d"
                       .format(currentPartitionFetchState.offset, topic, partitionId, newOffset))
-                  } catch {
+                  } catch { //note: 处理 out-of-range 是抛出的异常
                     case e: Throwable =>
                       error("Error getting offset for partition [%s,%d] to broker %d".format(topic, partitionId, sourceBroker.id), e)
                       updatePartitionsWithError(topicPartition)
                   }
-                case _ =>
+                case _ => //note: 其他的异常情况
                   if (isRunning.get) {
                     error("Error for partition [%s,%d] to broker %d:%s".format(topic, partitionId, sourceBroker.id,
                       partitionData.exception.get))
@@ -195,6 +200,7 @@ abstract class AbstractFetcherThread(name: String,
       }
     }
 
+    //note: 处理拉取遇到的错误读的 tp
     if (partitionsWithError.nonEmpty) {
       debug("handling partitions with error for %s".format(partitionsWithError))
       handlePartitionsWithErrors(partitionsWithError)
@@ -217,17 +223,19 @@ abstract class AbstractFetcherThread(name: String,
       val existingPartitionToState = partitionStates.partitionStates.asScala.map { state =>
         state.topicPartition -> state.value
       }.toMap
+      //note: 新增的 partition 的 offset 信息记录到 partitionStates
       partitionStates.set((existingPartitionToState ++ newPartitionToState).asJava)
       partitionMapCond.signalAll()
     } finally partitionMapLock.unlock()
   }
 
+  //note: 对指定的 partition 设置延迟时间，默认是1s
   def delayPartitions(partitions: Iterable[TopicPartition], delay: Long) {
     partitionMapLock.lockInterruptibly()
     try {
       for (partition <- partitions) {
         Option(partitionStates.stateValue(partition)).foreach (currentPartitionFetchState =>
-          if (currentPartitionFetchState.isActive)
+          if (currentPartitionFetchState.isActive)//note: 设置延迟时间
             partitionStates.updateAndMoveToEnd(partition, new PartitionFetchState(currentPartitionFetchState.offset, new DelayedItem(delay)))
         )
       }
@@ -356,6 +364,7 @@ case class PartitionFetchState(offset: Long, delay: DelayedItem) {
 
   def this(offset: Long) = this(offset, new DelayedItem(0))
 
+  //note: 延迟操作设置，如果该 partition 已经满足延迟时间的设置，那么就返回 true
   def isActive: Boolean = delay.getDelay(TimeUnit.MILLISECONDS) == 0
 
   override def toString = "%d-%b".format(offset, isActive)
