@@ -73,12 +73,12 @@ class Replica(val brokerId: Int,
     else if (logReadResult.info.fetchOffsetMetadata.messageOffset >= lastFetchLeaderLogEndOffset)
       _lastCaughtUpTimeMs = math.max(_lastCaughtUpTimeMs, lastFetchTimeMs)
 
-    logEndOffset = logReadResult.info.fetchOffsetMetadata
+    logEndOffset = logReadResult.info.fetchOffsetMetadata //note: 更新 LEO
     lastFetchLeaderLogEndOffset = logReadResult.leaderLogEndOffset
     lastFetchTimeMs = logReadResult.fetchTimeMs
   }
 
-  //note: 更新 replica 上次拉取时的时间
+  //note: 更新 replica 上次拉取时的时间（完全追得上 leader leo 时才触发的）
   def resetLastCaughtUpTime(curLeaderLogEndOffset: Long, curTimeMs: Long, lastCaughtUpTimeMs: Long) {
     lastFetchLeaderLogEndOffset = curLeaderLogEndOffset
     lastFetchTimeMs = curTimeMs

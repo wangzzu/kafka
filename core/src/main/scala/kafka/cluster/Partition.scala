@@ -408,22 +408,24 @@ class Partition(val topic: String,
     replicaManager.tryCompleteDelayedProduce(requestKey)
   }
 
+  //note: 检查这个 isr 中每个 replica
   def maybeShrinkIsr(replicaMaxLagTimeMs: Long) {
     val leaderHWIncremented = inWriteLock(leaderIsrUpdateLock) {
-      leaderReplicaIfLocal match {
+      leaderReplicaIfLocal match { //note: 只有本地副本是 leader, 才会做这个操作
         case Some(leaderReplica) =>
+          //note: 检查当前 isr 的副本是否需要从 isr 中移除
           val outOfSyncReplicas = getOutOfSyncReplicas(leaderReplica, replicaMaxLagTimeMs)
           if(outOfSyncReplicas.nonEmpty) {
-            val newInSyncReplicas = inSyncReplicas -- outOfSyncReplicas
+            val newInSyncReplicas = inSyncReplicas -- outOfSyncReplicas //note: new isr
             assert(newInSyncReplicas.nonEmpty)
             info("Shrinking ISR for partition [%s,%d] from %s to %s".format(topic, partitionId,
               inSyncReplicas.map(_.brokerId).mkString(","), newInSyncReplicas.map(_.brokerId).mkString(",")))
             // update ISR in zk and in cache
-            updateIsr(newInSyncReplicas)
+            updateIsr(newInSyncReplicas) //note: 更新 isr 到 zk
             // we may need to increment high watermark since ISR could be down to 1
 
-            replicaManager.isrShrinkRate.mark()
-            maybeIncrementLeaderHW(leaderReplica)
+            replicaManager.isrShrinkRate.mark() //note: 更新 metrics
+            maybeIncrementLeaderHW(leaderReplica) //note: isr 变动了,判断是否需要更新 partition 的 hw
           } else {
             false
           }
@@ -437,6 +439,7 @@ class Partition(val topic: String,
       tryCompleteDelayedRequests()
   }
 
+  //note: 检查 isr 中的副本是否需要从 isr 中移除
   def getOutOfSyncReplicas(leaderReplica: Replica, maxLagMs: Long): Set[Replica] = {
     /**
      * there are two cases that will be handled here -
@@ -449,6 +452,10 @@ class Partition(val topic: String,
      * is violated, that replica is considered to be out of sync
      *
      **/
+    //note: 获取那些不应该在 isr 中副本的列表
+    //note: 1. hang 住的 replica: replica 的 LEO 超过 maxLagMs 没有更新, 那么这个 replica 将会被从 isr 中移除;
+    //note: 2. 数据同步慢的 replica: 副本在 maxLagMs 内没有追上 leader 当前的 LEO, 那么这个 replica 讲会从 isr 中移除;
+    //note: 都是通过 lastCaughtUpTimeMs 来判断的
     val candidateReplicas = inSyncReplicas - leaderReplica
 
     val laggingReplicas = candidateReplicas.filter(r => (time.milliseconds - r.lastCaughtUpTimeMs) > maxLagMs)
@@ -501,7 +508,7 @@ class Partition(val topic: String,
       newLeaderAndIsr, controllerEpoch, zkVersion) //note: 执行更新操作
 
     if(updateSucceeded) { //note: 成功更新到 zk 上
-      replicaManager.recordIsrChange(topicPartition)
+      replicaManager.recordIsrChange(topicPartition) //note: 告诉 replicaManager 这个 partition 的 isr 需要更新
       inSyncReplicas = newIsr
       zkVersion = newVersion
       trace("ISR updated to [%s] and zkVersion updated to [%d]".format(newIsr.mkString(","), zkVersion))

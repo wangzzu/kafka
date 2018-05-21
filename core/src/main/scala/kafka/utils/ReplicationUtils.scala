@@ -30,6 +30,7 @@ object ReplicationUtils extends Logging {
 
   private val IsrChangeNotificationPrefix = "isr_change_"
 
+  //note: 将 isr 信息更新到 zk 上
   def updateLeaderAndIsr(zkUtils: ZkUtils, topic: String, partitionId: Int, newLeaderAndIsr: LeaderAndIsr, controllerEpoch: Int,
     zkVersion: Int): (Boolean,Int) = {
     debug("Updated ISR for partition [%s,%d] to %s".format(topic, partitionId, newLeaderAndIsr.isr.mkString(",")))
@@ -40,6 +41,7 @@ object ReplicationUtils extends Logging {
     updatePersistentPath
   }
 
+  //note: 创建 isr change 信息到 IsrChangeNotificationPath, 以便 controller 能监控到 isr 的变化
   def propagateIsrChanges(zkUtils: ZkUtils, isrChangeSet: Set[TopicPartition]): Unit = {
     val isrChangeNotificationPath: String = zkUtils.createSequentialPersistentPath(
       ZkUtils.IsrChangeNotificationPath + "/" + IsrChangeNotificationPrefix,
@@ -90,6 +92,7 @@ object ReplicationUtils extends Logging {
       Some(LeaderIsrAndControllerEpoch(LeaderAndIsr(leader, epoch, isr, zkPathVersion), controllerEpoch))}
   }
 
+  //note: 根据要更新 topic-partition 信息,生成一个 json 文件
   private def generateIsrChangeJson(isrChanges: Set[TopicPartition]): String = {
     val partitions = isrChanges.map(tp => Map("topic" -> tp.topic, "partition" -> tp.partition)).toArray
     Json.encode(Map("version" -> IsrChangeNotificationListener.version, "partitions" -> partitions))

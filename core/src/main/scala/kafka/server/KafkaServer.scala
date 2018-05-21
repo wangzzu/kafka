@@ -216,11 +216,13 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startup()
 
         /* start replica manager */
+        //note: 启动 replica manager
         replicaManager = new ReplicaManager(config, metrics, time, zkUtils, kafkaScheduler, logManager,
           isShuttingDown, quotaManagers.follower)
         replicaManager.startup()
 
         /* start kafka controller */
+        //note: 启动 controller
         kafkaController = new KafkaController(config, zkUtils, brokerState, time, metrics, threadNamePrefix)
         kafkaController.startup()
 
@@ -228,6 +230,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* start group coordinator */
         // Hardcode Time.SYSTEM for now as some Streams tests fail otherwise, it would be good to fix the underlying issue
+        //note: 启动 GroupCoordinator
         groupCoordinator = GroupCoordinator(config, zkUtils, replicaManager, Time.SYSTEM)
         groupCoordinator.startup()//note: 启动 groupCoordinator
 

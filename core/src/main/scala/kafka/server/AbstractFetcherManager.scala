@@ -111,11 +111,12 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
     info("Removed fetcher for partitions %s".format(partitions.mkString(",")))
   }
 
+  //note: 关闭没有拉取 topic-partition 任务的拉取线程
   def shutdownIdleFetcherThreads() {
     mapLock synchronized {
       val keysToBeRemoved = new mutable.HashSet[BrokerAndFetcherId]
       for ((key, fetcher) <- fetcherThreadMap) {
-        if (fetcher.partitionCount <= 0) {
+        if (fetcher.partitionCount <= 0) { //note: 如果该线程拉取的 partition 数小于 0
           fetcher.shutdown()
           keysToBeRemoved += key
         }

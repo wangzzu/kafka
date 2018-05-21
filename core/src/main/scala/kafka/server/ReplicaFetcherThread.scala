@@ -178,6 +178,7 @@ class ReplicaFetcherThread(name: String,
      *
      * There is a potential for a mismatch between the logs of the two replicas here. We don't fix this mismatch as of now.
      */
+    //note: 脏选举的发生
     //note: 获取最新的 offset
     val leaderEndOffset: Long = earliestOrLatestOffset(topicPartition, ListOffsetRequest.LATEST_TIMESTAMP,
       brokerConfig.brokerId)
@@ -312,7 +313,7 @@ class ReplicaFetcherThread(name: String,
       if (partitionFetchState.isActive && !shouldFollowerThrottle(quota, topicPartition))
         requestMap.put(topicPartition, new JFetchRequest.PartitionData(partitionFetchState.offset, fetchSize))
     }
-    //note: 关键在于 setReplicaId 方法,设置了 replicaId,consumer 的该值为CONSUMER_REPLICA_ID（-1）
+    //note: 关键在于 setReplicaId 方法,设置了 replicaId, 对于 consumer, 该值为 CONSUMER_REPLICA_ID（-1）
     val requestBuilder = new JFetchRequest.Builder(maxWait, minBytes, requestMap).
         setReplicaId(replicaId).setMaxBytes(maxBytes)
     requestBuilder.setVersion(fetchRequestVersion)

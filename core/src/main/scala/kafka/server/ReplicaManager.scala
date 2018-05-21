@@ -155,6 +155,7 @@ class ReplicaManager(val config: KafkaConfig,
   val isrExpandRate = newMeter("IsrExpandsPerSec",  "expands", TimeUnit.SECONDS)
   val isrShrinkRate = newMeter("IsrShrinksPerSec",  "shrinks", TimeUnit.SECONDS)
 
+  //note: 查看当 broker 的 leader 有多少是 under replica
   def underReplicatedPartitionCount(): Int = {
       getLeaderPartitions().count(_.isUnderReplicated)
   }
@@ -177,15 +178,16 @@ class ReplicaManager(val config: KafkaConfig,
    * This allows an occasional ISR change to be propagated within a few seconds, and avoids overwhelming controller and
    * other brokers when large amount of ISR change occurs.
    */
+  //note: 这个方法是周期性的运行,来判断 partition 的 isr 是否需要更新,
   def maybePropagateIsrChanges() {
     val now = System.currentTimeMillis()
     isrChangeSet synchronized {
-      if (isrChangeSet.nonEmpty &&
-        (lastIsrChangeMs.get() + ReplicaManager.IsrChangePropagationBlackOut < now ||
-          lastIsrPropagationMs.get() + ReplicaManager.IsrChangePropagationInterval < now)) {
-        ReplicationUtils.propagateIsrChanges(zkUtils, isrChangeSet)
-        isrChangeSet.clear()
-        lastIsrPropagationMs.set(now)
+      if (isrChangeSet.nonEmpty && //note:  有 topic-partition 的 isr 需要更新
+        (lastIsrChangeMs.get() + ReplicaManager.IsrChangePropagationBlackOut < now || //note: 5s 内没有触发过
+          lastIsrPropagationMs.get() + ReplicaManager.IsrChangePropagationInterval < now)) { //note: 距离上次触发有60s
+        ReplicationUtils.propagateIsrChanges(zkUtils, isrChangeSet) //note: 在 zk 创建 isr 变动的提醒
+        isrChangeSet.clear() //note: 清空 isrChangeSet,它记录着 isr 变动的 topic-partition 信息
+        lastIsrPropagationMs.set(now) //note: 最近一次触发这个方法的时间
       }
     }
   }
@@ -222,7 +224,9 @@ class ReplicaManager(val config: KafkaConfig,
   def startup() {
     // start ISR expiration thread
     // A follower can lag behind leader for up to config.replicaLagTimeMaxMs x 1.5 before it is removed from ISR
+    //note: 周期性检查 isr 是否有 replica 过期需要从 isr 中移除
     scheduler.schedule("isr-expiration", maybeShrinkIsr, period = config.replicaLagTimeMaxMs / 2, unit = TimeUnit.MILLISECONDS)
+    //note: 周期性检查是不是有 topic-partition 的 isr 需要变动,如果需要,就更新到 zk 上,来触发 controller
     scheduler.schedule("isr-change-propagation", maybePropagateIsrChanges, period = 2500L, unit = TimeUnit.MILLISECONDS)
   }
 
@@ -259,10 +263,10 @@ class ReplicaManager(val config: KafkaConfig,
           .format(localBrokerId, stopReplicaRequest.controllerEpoch, controllerEpoch))
         (responseMap, Errors.STALE_CONTROLLER_EPOCH.code)
       } else {
-        val partitions = stopReplicaRequest.partitions.asScala
+        val partitions = stopReplicaRequest.partitions.asScala //note: 要停止同步的 topic-partiiton 列表
         controllerEpoch = stopReplicaRequest.controllerEpoch
         // First stop fetchers for all partitions, then stop the corresponding replicas
-        replicaFetcherManager.removeFetcherForPartitions(partitions)
+        replicaFetcherManager.removeFetcherForPartitions(partitions) //note: 停止副本同步
         for (topicPartition <- partitions){
           val errorCode = stopReplica(topicPartition, stopReplicaRequest.deletePartitions)
           responseMap.put(topicPartition, errorCode)
@@ -661,10 +665,10 @@ class ReplicaManager(val config: KafkaConfig,
       replica.log.map(log => (log.config.messageFormatVersion.messageFormatVersion, log.config.messageTimestampType))
     }
 
-  //NOTE: Controller 向所有的 Broker 发送请求,让它们去更新各自的 meta 信息
+  //note: Controller 向所有的 Broker 发送请求,让它们去更新各自的 meta 信息
   def maybeUpdateMetadataCache(correlationId: Int, updateMetadataRequest: UpdateMetadataRequest, metadataCache: MetadataCache) : Seq[TopicPartition] =  {
     replicaStateChangeLock synchronized {
-      if(updateMetadataRequest.controllerEpoch < controllerEpoch) {
+      if(updateMetadataRequest.controllerEpoch < controllerEpoch) { //note: 来自过期的 controller
         val stateControllerEpochErrorMessage = ("Broker %d received update metadata request with correlation id %d from an " +
           "old controller %d with epoch %d. Latest known controller epoch is %d").format(localBrokerId,
           correlationId, updateMetadataRequest.controllerId, updateMetadataRequest.controllerEpoch,
@@ -672,6 +676,7 @@ class ReplicaManager(val config: KafkaConfig,
         stateChangeLogger.warn(stateControllerEpochErrorMessage)
         throw new ControllerMovedException(stateControllerEpochErrorMessage)
       } else {
+        //note: 更新 metadata 信息,并返回需要删除的 Partition 信息
         val deletedPartitions = metadataCache.updateCache(correlationId, updateMetadataRequest)
         controllerEpoch = updateMetadataRequest.controllerEpoch
         deletedPartitions
@@ -679,6 +684,7 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
+  //note: 处理 LeaderAndIsr 请求
   def becomeLeaderOrFollower(correlationId: Int,leaderAndISRRequest: LeaderAndIsrRequest,
                              metadataCache: MetadataCache,
                              onLeadershipChange: (Iterable[Partition], Iterable[Partition]) => Unit): BecomeLeaderOrFollowerResult = {
@@ -701,7 +707,7 @@ class ReplicaManager(val config: KafkaConfig,
         // First check partition's leader epoch
         val partitionState = new mutable.HashMap[Partition, PartitionState]()
         leaderAndISRRequest.partitionStates.asScala.foreach { case (topicPartition, stateInfo) =>
-          val partition = getOrCreatePartition(topicPartition)
+          val partition = getOrCreatePartition(topicPartition) //note: 对应的 tp 如果没有 Parition 实例的话,就新建一个
           val partitionLeaderEpoch = partition.getLeaderEpoch
           // If the leader epoch is valid record the epoch of the controller that made the leadership decision.
           // This is useful while updating the isr to maintain the decision maker controller's epoch in the zookeeper path
@@ -727,8 +733,8 @@ class ReplicaManager(val config: KafkaConfig,
 
         val partitionsTobeLeader = partitionState.filter { case (_, stateInfo) =>
           stateInfo.leader == localBrokerId
-        }
-        val partitionsToBeFollower = partitionState -- partitionsTobeLeader.keys
+        }//note: 这些 tp 设置为 leader
+        val partitionsToBeFollower = partitionState -- partitionsTobeLeader.keys //note: 这些 tp 设置为了 follower
 
         val partitionsBecomeLeader = if (partitionsTobeLeader.nonEmpty)
           makeLeaders(controllerId, controllerEpoch, partitionsTobeLeader, correlationId, responseMap)
@@ -745,7 +751,7 @@ class ReplicaManager(val config: KafkaConfig,
           startHighWaterMarksCheckPointThread()
           hwThreadInitialized = true
         }
-        replicaFetcherManager.shutdownIdleFetcherThreads()
+        replicaFetcherManager.shutdownIdleFetcherThreads() //note: 检查 replica fetcher 是否需要关闭
 
         onLeadershipChange(partitionsBecomeLeader, partitionsBecomeFollower)
         BecomeLeaderOrFollowerResult(responseMap, Errors.NONE.code)
@@ -965,6 +971,7 @@ class ReplicaManager(val config: KafkaConfig,
     partitionsToMakeFollower
   }
 
+  //note: 遍历所有的 partition 对象,检查其 isr 是否需要抖动
   private def maybeShrinkIsr(): Unit = {
     trace("Evaluating ISR list of partitions to see which replicas can be removed from the ISR")
     allPartitions.values.foreach(partition => partition.maybeShrinkIsr(config.replicaLagTimeMaxMs))

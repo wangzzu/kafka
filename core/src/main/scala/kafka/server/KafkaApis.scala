@@ -192,15 +192,17 @@ class KafkaApis(val requestChannel: RequestChannel,
     replicaManager.replicaFetcherManager.shutdownIdleFetcherThreads()
   }
 
+  //note: 处理 update-metadata 请求
   def handleUpdateMetadataRequest(request: RequestChannel.Request) {
     val correlationId = request.header.correlationId
     val updateMetadataRequest = request.body.asInstanceOf[UpdateMetadataRequest]
 
     val updateMetadataResponse =
       if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {
+        //note: 更新 metadata, 并返回需要删除的 Partition
         val deletedPartitions = replicaManager.maybeUpdateMetadataCache(correlationId, updateMetadataRequest, metadataCache)
         if (deletedPartitions.nonEmpty)
-          coordinator.handleDeletedPartitions(deletedPartitions)
+          coordinator.handleDeletedPartitions(deletedPartitions) //note: GroupCoordinator 会清除相关 partition 的信息
 
         if (adminManager.hasDelayedTopicOperations) {
           updateMetadataRequest.partitionStates.keySet.asScala.map(_.topic).foreach { topic =>

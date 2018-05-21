@@ -156,12 +156,14 @@ private[server] class MetadataCache(brokerId: Int) extends Logging {
   def getControllerId: Option[Int] = controllerId
 
   // This method returns the deleted TopicPartitions received from UpdateMetadataRequest
+  //note: 更新本地的 meta,并返回要删除的 topic-partition
   def updateCache(correlationId: Int, updateMetadataRequest: UpdateMetadataRequest): Seq[TopicPartition] = {
     inWriteLock(partitionMetadataLock) {
       controllerId = updateMetadataRequest.controllerId match {
           case id if id < 0 => None
           case id => Some(id)
         }
+      //note: 清空 aliveNodes 和 aliveBrokers 记录,并更新成最新的记录
       aliveNodes.clear()
       aliveBrokers.clear()
       updateMetadataRequest.liveBrokers.asScala.foreach { broker =>
@@ -178,18 +180,18 @@ private[server] class MetadataCache(brokerId: Int) extends Logging {
         aliveNodes(broker.id) = nodes.asScala
       }
 
-      val deletedPartitions = new mutable.ArrayBuffer[TopicPartition]
+      val deletedPartitions = new mutable.ArrayBuffer[TopicPartition] //note:
       updateMetadataRequest.partitionStates.asScala.foreach { case (tp, info) =>
         val controllerId = updateMetadataRequest.controllerId
         val controllerEpoch = updateMetadataRequest.controllerEpoch
-        if (info.leader == LeaderAndIsr.LeaderDuringDelete) {
-          removePartitionInfo(tp.topic, tp.partition)
+        if (info.leader == LeaderAndIsr.LeaderDuringDelete) { //note: partition 被标记为了删除
+          removePartitionInfo(tp.topic, tp.partition) //note: 从 cache 中删除
           stateChangeLogger.trace(s"Broker $brokerId deleted partition $tp from metadata cache in response to UpdateMetadata " +
             s"request sent by controller $controllerId epoch $controllerEpoch with correlation id $correlationId")
           deletedPartitions += tp
-        } else {
+        } else {//note: 更新
           val partitionInfo = partitionStateToPartitionStateInfo(info)
-          addOrUpdatePartitionInfo(tp.topic, tp.partition, partitionInfo)
+          addOrUpdatePartitionInfo(tp.topic, tp.partition, partitionInfo) //note: 更新 topic-partition meta
           stateChangeLogger.trace(s"Broker $brokerId cached leader info $partitionInfo for partition $tp in response to " +
             s"UpdateMetadata request sent by controller $controllerId epoch $controllerEpoch with correlation id $correlationId")
         }
