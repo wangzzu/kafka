@@ -360,7 +360,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
         if (hasStarted.get) {
           ControllerStats.leaderElectionTimer.time {
             try {
-              val curBrokers = currentBrokerList.map(_.toInt).toSet.flatMap(zkUtils.getBrokerInfo)
+              val curBrokers = currentBrokerList.map(_.toInt).toSet.flatMap(zkUtils.getBrokerInfo) //note: 当前 zk 的 broker 列表
               val curBrokerIds = curBrokers.map(_.id) //note: 缓存中的 broker_id.list
               val liveOrShuttingDownBrokerIds = controllerContext.liveOrShuttingDownBrokerIds
               val newBrokerIds = curBrokerIds -- liveOrShuttingDownBrokerIds
@@ -376,7 +376,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
               deadBrokerIds.foreach(controllerContext.controllerChannelManager.removeBroker)
               if(newBrokerIds.nonEmpty)
                 controller.onBrokerStartup(newBrokerIdsSorted)
-              if(deadBrokerIds.nonEmpty)
+              if(deadBrokerIds.nonEmpty) //note: broker 掉线后开始 leader 选举
                 controller.onBrokerFailure(deadBrokerIdsSorted)
             } catch {
               case e: Throwable => error("Error while handling broker changes", e)

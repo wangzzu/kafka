@@ -60,6 +60,7 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
    */
   def startup() {
     // initialize partition state
+    //note: 初始化 partition 的状态,如果 leader 所在 broker 是 alive 的,那么状态为 OnlinePartition,否则为 OfflinePartition
     initializePartitionState()
     // set started flag
     hasStarted.set(true)
@@ -110,6 +111,7 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
       brokerRequestBatch.newBatch()
       // try to move all partitions in NewPartition or OfflinePartition state to OnlinePartition state except partitions
       // that belong to topics to be deleted
+      //note: 开始为所有状态在 NewPartition or OfflinePartition 状态的 partition 更新状态
       for((topicAndPartition, partitionState) <- partitionState
           if !controller.deleteTopicManager.isTopicQueuedUpForDeletion(topicAndPartition.topic)) {
         if(partitionState.equals(OfflinePartition) || partitionState.equals(NewPartition))

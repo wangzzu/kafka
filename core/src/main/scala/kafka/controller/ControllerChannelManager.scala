@@ -43,8 +43,9 @@ class ControllerChannelManager(controllerContext: ControllerContext, config: Kaf
   private val brokerLock = new Object
   this.logIdent = "[Channel manager on controller " + config.brokerId + "]: "
 
-  controllerContext.liveBrokers.foreach(addNewBroker)
+  controllerContext.liveBrokers.foreach(addNewBroker) //note: 获取目前已经存活的所有 broker
 
+  //note: 开始连接所有的 broker
   def startup() = {
     brokerLock synchronized {
       brokerStateInfo.foreach(brokerState => startRequestSendThread(brokerState._1))

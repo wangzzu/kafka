@@ -33,8 +33,8 @@ import org.apache.kafka.common.utils.Time
  */
 class ZookeeperLeaderElector(controllerContext: ControllerContext,
                              electionPath: String, //note: 路径是 /controller
-                             onBecomingLeader: () => Unit,
-                             onResigningAsLeader: () => Unit,
+                             onBecomingLeader: () => Unit, //note: onControllerFailover() 方法
+                             onResigningAsLeader: () => Unit, //note: onControllerResignation() 方法
                              brokerId: Int,
                              time: Time)
   extends LeaderElector with Logging {
@@ -52,6 +52,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
     }
   }
 
+  //note: 从 zk 获取当前的 controller 信息
   def getControllerID(): Int = {
     controllerContext.zkUtils.readDataMaybeNull(electionPath)._1 match {
        case Some(controller) => KafkaController.parseControllerId(controller)
@@ -83,9 +84,9 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
       zkCheckedEphemeral.create() //note: 没有异常的话就是创建成功了
       info(brokerId + " successfully elected as leader")
       leaderId = brokerId
-      onBecomingLeader()
+      onBecomingLeader() //note: 成为了 controller
     } catch {
-      case _: ZkNodeExistsException =>
+      case _: ZkNodeExistsException => //note: 在创建时,发现已经有 broker 提前注册成功
         // If someone else has written the path, then
         leaderId = getControllerID 
 
@@ -132,6 +133,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
         amILeaderBeforeDataChange && !amILeader
       }
 
+      //note: 之前是 controller,现在不是了      
       if (shouldResign)
         onResigningAsLeader()
     }
@@ -141,6 +143,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
      * @throws Exception
      *             On any error.
      */
+    //note: 如果之前是 controller,现在这个节点被删除了,那么首先退出 controller 进程,然后开始重新选举 controller
     @throws[Exception]
     def handleDataDeleted(dataPath: String) { 
       val shouldResign = inLock(controllerContext.controllerLock) {

@@ -762,18 +762,19 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
   //note: 初始化 KafkaController 的上下文数据
   private def initializeControllerContext() {
     // update controller cache with delete topic information
-    controllerContext.liveBrokers = zkUtils.getAllBrokersInCluster().toSet
-    controllerContext.allTopics = zkUtils.getAllTopics().toSet
+    controllerContext.liveBrokers = zkUtils.getAllBrokersInCluster().toSet //note: 初始化 zk 的 broker_list 信息
+    controllerContext.allTopics = zkUtils.getAllTopics().toSet //note: 初始化所有的 topic 信息
+    //note: 初始化所有 topic 的 partition 的 replica 分配
     controllerContext.partitionReplicaAssignment = zkUtils.getReplicaAssignmentForTopics(controllerContext.allTopics.toSeq)
     controllerContext.partitionLeadershipInfo = new mutable.HashMap[TopicAndPartition, LeaderIsrAndControllerEpoch]
     controllerContext.shuttingDownBrokerIds = mutable.Set.empty[Int]
     // update the leader and isr cache for all existing partitions from Zookeeper
-    updateLeaderAndIsrCache()
+    updateLeaderAndIsrCache() //note: 获取 topic-partition 的详细信息,更新到 partitionLeadershipInfo 中
     // start the channel manager
-    startChannelManager()
-    initializePreferredReplicaElection()
-    initializePartitionReassignment()
-    initializeTopicDeletion()
+    startChannelManager() //note: 启动连接所有的 broker 的线程, 根据 broker/ids 的临时去判断要连接哪些 broker
+    initializePreferredReplicaElection() //note: 初始化 partition 的 leader 正在选举情况
+    initializePartitionReassignment() //note: 处理 partition 正在 reassign 的情况
+    initializeTopicDeletion() //note: 初始化 topic 后台的删除线程
     info("Currently active brokers in the cluster: %s".format(controllerContext.liveBrokerIds))
     info("Currently shutting brokers in the cluster: %s".format(controllerContext.shuttingDownBrokerIds))
     info("Current list of topics in the cluster: %s".format(controllerContext.allTopics))
@@ -817,6 +818,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     info("Resuming reassignment of partitions: %s".format(partitionsToReassign.toString()))
   }
 
+  //note: 初始化要删除的 topic 及后台的 topic 删除线程
   private def initializeTopicDeletion() {
     val topicsQueuedForDeletion = zkUtils.getChildrenParentMayNotExist(ZkUtils.DeleteTopicsPath).toSet
     val topicsWithReplicasOnDeadBrokers = controllerContext.partitionReplicaAssignment.filter { case (_, replicas) =>
