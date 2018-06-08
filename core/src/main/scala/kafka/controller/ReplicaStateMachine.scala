@@ -74,7 +74,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
   // register ZK listeners of the replica state machine
   def registerListeners() {
     // register broker change listener
-    registerBrokerChangeListener()
+    registerBrokerChangeListener() //note: 监听【/brokers/ids】，broker 的上线下线
   }
 
   // de-register ZK listeners of the replica state machine

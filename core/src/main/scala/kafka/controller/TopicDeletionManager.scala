@@ -84,7 +84,7 @@ class TopicDeletionManager(controller: KafkaController,
   val deleteTopicsCond = deleteLock.newCondition()
   val deleteTopicStateChanged: AtomicBoolean = new AtomicBoolean(false)
   var deleteTopicsThread: DeleteTopicsThread = null
-  val isDeleteTopicEnabled = controller.config.deleteTopicEnable
+  val isDeleteTopicEnabled = controller.config.deleteTopicEnable //note: 是否允许删除 topic
   val topicsToBeDeleted: mutable.Set[String] = if (isDeleteTopicEnabled) {
     mutable.Set.empty[String] ++ initialTopicsToBeDeleted
   } else {

@@ -73,8 +73,8 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
   // register topic and partition change listeners
   //note: 注册 topic 和 partition 变更监控的 listener
   def registerListeners() {
-    registerTopicChangeListener()
-    registerDeleteTopicListener()
+    registerTopicChangeListener() //note: 监听【/brokers/topics】, 是否有新 topic 创建
+    registerDeleteTopicListener() //note: 监听【/admin/delete_topics】,是否有 topic 设置删除
   }
 
   // de-register topic and partition change listeners

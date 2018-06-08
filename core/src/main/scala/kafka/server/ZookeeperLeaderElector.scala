@@ -31,6 +31,7 @@ import org.apache.kafka.common.utils.Time
  * leader is dead, this class will handle automatic re-election and if it succeeds, it invokes the leader state change
  * callback
  */
+//note: controller 临时节点监控及 controller 选举
 class ZookeeperLeaderElector(controllerContext: ControllerContext,
                              electionPath: String, //note: 路径是 /controller
                              onBecomingLeader: () => Unit, //note: onControllerFailover() 方法
@@ -95,7 +96,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
         else
           warn("A leader has been elected but just resigned, this will result in another round of election")
 
-      case e2: Throwable =>
+      case e2: Throwable => //note: 抛出了其他异常，那么重新选举 controller
         error("Error while electing or becoming leader on broker %d".format(brokerId), e2)
         resign()
     }
@@ -108,7 +109,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
 
   def amILeader : Boolean = leaderId == brokerId
 
-  def resign() = {
+  def resign() = { //note: 清除本机 controller 记录，重新选举 controller
     leaderId = -1
     controllerContext.zkUtils.deletePath(electionPath)
   }
