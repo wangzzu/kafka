@@ -22,7 +22,7 @@ import java.util.concurrent.CountDownLatch
 
 abstract class ShutdownableThread(val name: String, val isInterruptible: Boolean = true)
         extends Thread(name) with Logging {
-  this.setDaemon(false)
+  this.setDaemon(false) //note: 默认是非守护进程
   this.logIdent = "[" + name + "], "
   val isRunning: AtomicBoolean = new AtomicBoolean(true)
   private val shutdownLatch = new CountDownLatch(1)
