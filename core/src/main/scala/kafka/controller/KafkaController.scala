@@ -1031,9 +1031,9 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     //note: 状态转变为 ReplicaDeletionStarted
     replicaStateMachine.handleStateChanges(replicasToBeDeleted, ReplicaDeletionStarted)
     // TODO: Eventually partition reassignment could use a callback that does retries if deletion failed
-    //note: 状态转变为 ReplicaDeletionStarted
+    //note: 状态转变为 ReplicaDeletionSuccessful
     replicaStateMachine.handleStateChanges(replicasToBeDeleted, ReplicaDeletionSuccessful)
-    //note: 状态转变为 ReplicaDeletionStarted
+    //note: 状态转变为 NonExistentReplica
     replicaStateMachine.handleStateChanges(replicasToBeDeleted, NonExistentReplica)
   }
 
@@ -1050,7 +1050,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     controllerContext.partitionReplicaAssignment.put(topicAndPartition, replicas)
   }
 
-  //note: 将新创建的副本状态设置为 NewReplica
+  //note: 将迁移设置的新副本状态设置为 NewReplica
   private def startNewReplicasForReassignedPartition(topicAndPartition: TopicAndPartition,
                                                      reassignedPartitionContext: ReassignedPartitionsContext,
                                                      newReplicas: Set[Int]) {
