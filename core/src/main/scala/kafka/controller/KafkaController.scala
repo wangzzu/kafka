@@ -902,7 +902,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     info("Resuming preferred replica election for partitions: %s".format(controllerContext.partitionsUndergoingPreferredReplicaElection.mkString(",")))
   }
 
-  //note: 初始化需要进行 Partition 副本选举的 Partition 记录
+  //note: 初始化需要进行 Partition 副本迁移的 Partition 记录
   private def initializePartitionReassignment() {
     // read the partitions being reassigned from zookeeper path /admin/reassign_partitions
     //note: 从 zk 的【/admin/reassign_partitions】获取 Partition 列表

@@ -65,7 +65,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
   def elect: Boolean = {
     val timestamp = time.milliseconds.toString
     val electString = Json.encode(Map("version" -> 1, "brokerid" -> brokerId, "timestamp" -> timestamp))
-   
+
    leaderId = getControllerID 
     /* 
      * We can get here during the initial startup and the handleDeleted ZK callback. Because of the potential race condition, 
@@ -136,7 +136,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
 
       //note: 之前是 controller,现在不是了      
       if (shouldResign)
-        onResigningAsLeader()
+        onResigningAsLeader() //note: 关闭 controller 服务
     }
 
     /**
