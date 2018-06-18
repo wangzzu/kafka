@@ -223,9 +223,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     // stop serving data to clients for the topic being deleted
     val controlledShutdownRequest = request.requestObj.asInstanceOf[ControlledShutdownRequest]
 
+    //note: 判断该连接是否经过认证
     authorizeClusterAction(request)
 
+    //note: 处理该请求 
     val partitionsRemaining = controller.shutdownBroker(controlledShutdownRequest.brokerId)
+    //note: 返回的 response
     val controlledShutdownResponse = new ControlledShutdownResponse(controlledShutdownRequest.correlationId,
       Errors.NONE.code, partitionsRemaining)
     requestChannel.sendResponse(new Response(request, new RequestOrResponseSend(request.connectionId, controlledShutdownResponse)))

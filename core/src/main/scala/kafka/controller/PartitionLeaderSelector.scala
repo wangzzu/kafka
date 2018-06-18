@@ -153,7 +153,7 @@ class ReassignedPartitionLeaderSelector(controllerContext: ControllerContext) ex
  * New isr = current isr;
  * Replicas to receive LeaderAndIsr request = assigned replicas
  */
-//note: 最优的 leader 选举策略（主要用于自动 leader 均衡，选择 AR 中第一个为 leader，前提是它在 isr 中，这样整个集群的 leader 是均衡的）
+//note: 最优的 leader 选举策略（主要用于自动 leader 均衡，选择 AR 中第一个为 leader，前提是它在 isr 中，这样整个集群的 leader 是均衡的,否则抛出异常）
 //note: new leader = 第一个 replica（alive and in isr）
 //note: new isr = 当前 isr
 //note: 接收 LeaderAndIsr request 的 replica = AR

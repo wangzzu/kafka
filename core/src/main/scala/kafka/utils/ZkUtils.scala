@@ -129,6 +129,7 @@ object ZkUtils {
     DeleteTopicsPath + "/" + topic
 
   // Parses without deduplicating keys so the data can be checked before allowing reassignment to proceed
+  //note: 获取将要进行副本迁移的 Topic-Partition 信息
   def parsePartitionReassignmentDataWithoutDedup(jsonData: String): Seq[(TopicAndPartition, Seq[Int])] = {
     Json.parseFull(jsonData) match {
       case Some(m) =>

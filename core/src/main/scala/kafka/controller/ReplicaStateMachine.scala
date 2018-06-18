@@ -107,14 +107,16 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
    * @param targetState  The state that the replicas should be moved to
    * The controller's allLeaders cache should have been updated before this
    */
-  //note: 由 KafkaController 或者副本状态机初始化时调用,主要用于处理 Replica 状态的变化
+  //note: 用于处理 Replica 状态的变化
   def handleStateChanges(replicas: Set[PartitionAndReplica], targetState: ReplicaState,
                          callbacks: Callbacks = (new CallbackBuilder).build) {
     if(replicas.nonEmpty) {
       info("Invoking state change to %s for replicas %s".format(targetState, replicas.mkString(",")))
       try {
         brokerRequestBatch.newBatch()
+        //note: 状态转变
         replicas.foreach(r => handleStateChange(r, targetState, callbacks))
+        //note: 发送 update-metadata 请求
         brokerRequestBatch.sendRequestsToBrokers(controller.epoch)
       }catch {
         case e: Throwable => error("Error while moving some replicas to %s state".format(targetState), e)
@@ -233,7 +235,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
               stateChangeLogger.trace("Controller %d epoch %d changed state of replica %d for partition %s from %s to %s"
                                         .format(controllerId, controller.epoch, replicaId, topicAndPartition, currState,
                                                 targetState))
-            case _ => //note: OnlineReplica/OfflineReplica --> OnlineReplica
+            case _ => //note: OnlineReplica/OfflineReplica/ReplicaDeletionIneligible --> OnlineReplica
               // check if the leader for this partition ever existed
               //note: 如果该 Partition 的 LeaderIsrAndControllerEpoch 信息存在,那么就更新副本的状态,并发送相应的请求
               controllerContext.partitionLeadershipInfo.get(topicAndPartition) match {
@@ -364,6 +366,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
   /**
    * This is the zookeeper listener that triggers all the state transitions for a replica
    */
+  //note: 如果 【/brokers/ids】 目录下子节点有变化将会触发这个操作
   class BrokerChangeListener(protected val controller: KafkaController) extends ControllerZkChildListener {
 
     protected def logName = "BrokerChangeListener"
@@ -374,21 +377,29 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
         if (hasStarted.get) {
           ControllerStats.leaderElectionTimer.time {
             try {
-              val curBrokers = currentBrokerList.map(_.toInt).toSet.flatMap(zkUtils.getBrokerInfo) //note: 当前 zk 的 broker 列表
-              val curBrokerIds = curBrokers.map(_.id) //note: 缓存中的 broker_id.list
+              //note: 当前 zk 的 broker 列表
+              val curBrokers = currentBrokerList.map(_.toInt).toSet.flatMap(zkUtils.getBrokerInfo)
+              //note: ZK 中的 broker id 列表
+              val curBrokerIds = curBrokers.map(_.id)
+              //note: Controller 缓存中的 broker 列表
               val liveOrShuttingDownBrokerIds = controllerContext.liveOrShuttingDownBrokerIds
+              //note: 新上线的 broker id 列表
               val newBrokerIds = curBrokerIds -- liveOrShuttingDownBrokerIds
+              //note: 掉线的 broker id 列表
               val deadBrokerIds = liveOrShuttingDownBrokerIds -- curBrokerIds
+              //note: 新上线的 Broker 列表
               val newBrokers = curBrokers.filter(broker => newBrokerIds(broker.id))
-              controllerContext.liveBrokers = curBrokers
-              val newBrokerIdsSorted = newBrokerIds.toSeq.sorted
+              controllerContext.liveBrokers = curBrokers //note: 更新缓存中当前 broker 列表
+              val newBrokerIdsSorted = newBrokerIds.toSeq.sorted 
               val deadBrokerIdsSorted = deadBrokerIds.toSeq.sorted
               val liveBrokerIdsSorted = curBrokerIds.toSeq.sorted
               info("Newly added brokers: %s, deleted brokers: %s, all live brokers: %s"
                 .format(newBrokerIdsSorted.mkString(","), deadBrokerIdsSorted.mkString(","), liveBrokerIdsSorted.mkString(",")))
+              //note: Broker 上线, 在 Controller Channel Manager 中添加该 broker
               newBrokers.foreach(controllerContext.controllerChannelManager.addBroker)
+              //note: Broker 下线处理, 在 Controller Channel Manager 移除该 broker
               deadBrokerIds.foreach(controllerContext.controllerChannelManager.removeBroker)
-              if(newBrokerIds.nonEmpty)
+              if(newBrokerIds.nonEmpty) //note: 启动该 Broker
                 controller.onBrokerStartup(newBrokerIdsSorted)
               if(deadBrokerIds.nonEmpty) //note: broker 掉线后开始 leader 选举
                 controller.onBrokerFailure(deadBrokerIdsSorted)

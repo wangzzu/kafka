@@ -104,13 +104,13 @@ class TopicDeletionManager(controller: KafkaController,
   /**
    * Invoked at the end of new controller initiation
    */
-  //note: controller 初始化完成,触发这个操作,删除 topic 线程启动
+  //note: Controller 初始化完成,触发这个操作,删除 topic 线程启动
   def start() {
     if (isDeleteTopicEnabled) {
       deleteTopicsThread = new DeleteTopicsThread()
       if (topicsToBeDeleted.nonEmpty)
         deleteTopicStateChanged.set(true)
-      deleteTopicsThread.start()
+      deleteTopicsThread.start() //note: 启动 DeleteTopicsThread
     }
   }
 
@@ -316,7 +316,7 @@ class TopicDeletionManager(controller: KafkaController,
     //note: 2. 过滤出副本状态为 ReplicaDeletionSuccessful 的副本列表
     val replicasForDeletedTopic = controller.replicaStateMachine.replicasInState(topic, ReplicaDeletionSuccessful)
     // controller will remove this replica from the state machine as well as its partition assignment cache
-    //note: controller 将会从副本状态机和 Partition-AR 缓存中移除这些副本
+    //note: controller 将会从副本状态机移除这些副本
     replicaStateMachine.handleStateChanges(replicasForDeletedTopic, NonExistentReplica)
     val partitionsForDeletedTopic = controllerContext.partitionsForTopic(topic)
     // move respective partition to OfflinePartition and NonExistentPartition state
@@ -410,7 +410,7 @@ class TopicDeletionManager(controller: KafkaController,
    */
   //note: 这个方法是 delete-topic 回调,用于删除 topic 的所有 partition
   //note: 1. 发送 UpdateMetadata 请求给所有的 broker,告诉它们这些 partition 是正在删除的,broker 将会拒绝所有 client 的请求（UnknownTopicOrPartitionException）
-  //note: 2. 将 partition 的所有的副本设置为 OfflineReplica 状态,打昂 StopReplica 给所有副本及 LeaderAndIsr 给 leader。当前 leader replica 的状态
+  //note: 2. 将 partition 的所有的副本设置为 OfflineReplica 状态,发送 StopReplica 给所有副本及 LeaderAndIsr 给 leader。当前 leader replica的状态
   //note:    变为 OfflineReplica 时,它将跳过发送 LeaderAndIsr 请求,因为这些 partition 的 leader 将被更新为-1
   //note: 3. 将所有 replica 的状态设置为 ReplicaDeletionStarted 状态, 它将会发送 StopReplicaRequest（deletePartition=true）,副本将会删除磁盘的数据
   private def onPartitionDeletion(partitionsToBeDeleted: Set[TopicAndPartition]) {
@@ -460,14 +460,14 @@ class TopicDeletionManager(controller: KafkaController,
 
         topicsQueuedForDeletion.foreach { topic =>
         // if all replicas are marked as deleted successfully, then topic deletion is done
-          if(controller.replicaStateMachine.areAllReplicasForTopicDeleted(topic)) {//note: 如果 Topic 删除成功的情况下
+          if(controller.replicaStateMachine.areAllReplicasForTopicDeleted(topic)) {//note: 如果 Topic 所有副本都删除成功的情况下
             // clear up all state for this topic from controller cache and zookeeper
-            //note: 从 controller 的缓存和 zk 中清除这个 topic 的所有记录
+            //note: 从 controller 的缓存和 zk 中清除这个 topic 的所有记录,这个 topic 彻底删除成功了
             completeDeleteTopic(topic)
             info("Deletion of topic %s successfully completed".format(topic))
           } else {
             if(controller.replicaStateMachine.isAtLeastOneReplicaInDeletionStartedState(topic)) {
-              //note: topic 的副本至少有一个状态为 ReplicaDeletionStarted 时
+              //note: Topic 的副本至少有一个状态为 ReplicaDeletionStarted 时
               // ignore since topic deletion is in progress
               //note: 过滤出 Topic 中副本状态为 ReplicaDeletionStarted 的 Partition 列表
               val replicasInDeletionStartedState = controller.replicaStateMachine.replicasInState(topic, ReplicaDeletionStarted)
@@ -476,7 +476,7 @@ class TopicDeletionManager(controller: KafkaController,
               val partitions = replicasInDeletionStartedState.map(r => TopicAndPartition(r.topic, r.partition))
               info("Deletion for replicas %s for partition %s of topic %s in progress".format(replicaIds.mkString(","),
                 partitions.mkString(","), topic))
-            } else { //note:副本既没有全部删除完成、也没有一个副本是在删除过程中，证明这个 topic 还没有开始删除或者至少一个副本删除失败 
+            } else { //note:副本既没有全部删除完成、也没有一个副本是在删除过程中，证明这个 topic 还没有开始删除或者删除完成但是至少一个副本删除失败 
               // if you come here, then no replica is in TopicDeletionStarted and all replicas are not in
               // TopicDeletionSuccessful. That means, that either given topic haven't initiated deletion
               // or there is at least one failed replica (which means topic deletion should be retried).

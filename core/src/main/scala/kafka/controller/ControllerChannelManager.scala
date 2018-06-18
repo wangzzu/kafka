@@ -195,8 +195,8 @@ class RequestSendThread(val controllerId: Int,
             else {
               val clientRequest = networkClient.newClientRequest(brokerNode.idString, requestBuilder,
                 time.milliseconds(), true)
-              clientResponse = networkClient.blockingSendAndReceive(clientRequest)(time)
-              isSendSuccessful = true
+              clientResponse = networkClient.blockingSendAndReceive(clientRequest)(time) //note: 触发请求发送,阻塞直到接收到 response
+              isSendSuccessful = true //note: 发送成功的标志
             }
           } catch {
             case e: Throwable => // if the send was not successful, reconnect to broker and resend the message

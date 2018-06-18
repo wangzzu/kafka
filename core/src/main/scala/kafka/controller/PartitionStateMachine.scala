@@ -195,6 +195,7 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
       throw new StateChangeFailedException(("Controller %d epoch %d initiated state change for partition %s to %s failed because " +
                                             "the partition state machine has not started")
                                               .format(controllerId, controller.epoch, topicAndPartition, targetState))
+    //note: 如果该 Partition 的状态不存在,默认为 NonExistentPartition
     val currState = partitionState.getOrElseUpdate(topicAndPartition, NonExistentPartition)
     try {
       targetState match {
@@ -292,7 +293,7 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
    * OfflinePartition state.
    * @param topicAndPartition   The topic/partition whose leader and isr path is to be initialized
    */
-  //note: 当 partition 状态由 NewPartition 变为 OnlinePartition 时,将触发这一方法,用来初始化 partition 的 leader 和 isr
+  //note: 当 partition 状态由 NewPartition 变为 OnlinePartition 时,将触发这一方法,用来初始化 partition 的 leader 和 isr,并发送 LeaderAndIsr 请求
   private def initializeLeaderAndIsrForPartition(topicAndPartition: TopicAndPartition) {
     //note: Partition 的 AR
     val replicaAssignment = controllerContext.partitionReplicaAssignment(topicAndPartition)
@@ -455,14 +456,17 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
               debug("Topic change listener fired for path %s with children %s".format(parentPath, children.mkString(",")))
               children.toSet
             }
-            val newTopics = currentChildren -- controllerContext.allTopics//note: 新创建的 topic 列表
-            val deletedTopics = controllerContext.allTopics -- currentChildren//note: 已经删除的 topic 列表
+            //note: 新创建的 topic 列表
+            val newTopics = currentChildren -- controllerContext.allTopics
+            //note: 已经删除的 topic 列表
+            val deletedTopics = controllerContext.allTopics -- currentChildren
             controllerContext.allTopics = currentChildren
 
-            //note: 新创建 topic 对应的 partition 列表
+            //note: 新创建 topic 对应的 partition 列表及副本列表添加到 Controller 的缓存中
             val addedPartitionReplicaAssignment = zkUtils.getReplicaAssignmentForTopics(newTopics.toSeq)
+            //note: Controller 从缓存中把已经删除 partition 过滤掉
             controllerContext.partitionReplicaAssignment = controllerContext.partitionReplicaAssignment.filter(p =>
-              !deletedTopics.contains(p._1.topic))//note: 把已经删除 partition 过滤掉
+              !deletedTopics.contains(p._1.topic))
             controllerContext.partitionReplicaAssignment.++=(addedPartitionReplicaAssignment)//note: 将新增的 tp-replicas 更新到缓存中
             info("New topics: [%s], deleted topics: [%s], new partition replica assignment [%s]".format(newTopics,
               deletedTopics, addedPartitionReplicaAssignment))
@@ -506,11 +510,11 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
           nonExistentTopics.foreach(topic => zkUtils.deletePathRecursive(getDeleteTopicPath(topic)))
         }
         topicsToBeDeleted --= nonExistentTopics
-        if (controller.config.deleteTopicEnable) {
+        if (controller.config.deleteTopicEnable) { //note: 如果允许 topic 删除
           if (topicsToBeDeleted.nonEmpty) { //note: 有 Topic 需要删除
             info("Starting topic deletion for topics " + topicsToBeDeleted.mkString(","))
             // mark topic ineligible for deletion if other state changes are in progress
-            topicsToBeDeleted.foreach { topic => //note: 如果 topic 正在最优 leader 选举或正在迁移,那么将 topic 标记为不合法删除状态
+            topicsToBeDeleted.foreach { topic => //note: 如果 topic 正在最优 leader 选举或正在迁移,那么将 topic 标记为非法删除状态
               val preferredReplicaElectionInProgress =
                 controllerContext.partitionsUndergoingPreferredReplicaElection.map(_.topic).contains(topic)
               val partitionReassignmentInProgress =
@@ -535,7 +539,7 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
     def doHandleDataDeleted(dataPath: String) {}
   }
 
-  //note: Partition change 监听器
+  //note: Partition change 监听器,主要是用于 Partition 扩容的监听
   class PartitionModificationsListener(protected val controller: KafkaController, topic: String) extends ControllerZkDataListener {
 
     protected def logName = "AddPartitionsListener"
@@ -545,8 +549,10 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
         try {
           info(s"Partition modification triggered $data for path $dataPath")
           val partitionReplicaAssignment = zkUtils.getReplicaAssignmentForTopics(List(topic))
+          //note: 获取新增的 partition 列表及其对应的分配副本列表
           val partitionsToBeAdded = partitionReplicaAssignment.filter(p =>
-            !controllerContext.partitionReplicaAssignment.contains(p._1))//note: 获取新增的 partition 列表
+            !controllerContext.partitionReplicaAssignment.contains(p._1))
+          //note: 如果该 topic 被标记为删除,那么直接跳过,不再处理,否则创建该 Partition
           if(controller.deleteTopicManager.isTopicQueuedUpForDeletion(topic))
             error("Skipping adding partitions %s for topic %s since it is currently being deleted"
                   .format(partitionsToBeAdded.map(_._1.partition).mkString(","), topic))

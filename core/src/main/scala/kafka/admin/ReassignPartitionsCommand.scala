@@ -155,6 +155,7 @@ object ReassignPartitionsCommand extends Logging {
     val reassignPartitionsCommand = new ReassignPartitionsCommand(zkUtils, partitionsToBeReassigned.toMap)
 
     // If there is an existing rebalance running, attempt to change its throttle
+    //note: 如果副本迁移正在进行,那么这次的副本迁移计划是无法提交的
     if (zkUtils.pathExists(ZkUtils.ReassignPartitionsPath)) {
       println("There is an existing assignment running.")
       reassignPartitionsCommand.maybeLimit(throttle)
@@ -163,6 +164,7 @@ object ReassignPartitionsCommand extends Logging {
       printCurrentAssignment(zkUtils, partitionsToBeReassigned)
       if (throttle >= 0)
         println(String.format("Warning: You must run Verify periodically, until the reassignment completes, to ensure the throttle is removed. You can also alter the throttle by rerunning the Execute command passing a new value."))
+      //note: 将迁移计划更新到 zk 上
       if (reassignPartitionsCommand.reassignPartitions(throttle)) {
         println("Successfully started reassignment of partitions.")
       } else
@@ -386,7 +388,7 @@ class ReassignPartitionsCommand(zkUtils: ZkUtils, proposedAssignment: Map[TopicA
       allProposed.filter { case (tp, _) => tp.topic == topic })
   }
 
-  //note: parttion reassignment,将 reassignment 更新到 zk 上
+  //note: partition reassignment,将 reassignment 更新到 zk 上
   def reassignPartitions(throttle: Long = -1): Boolean = {
     maybeThrottle(throttle)
     try {
