@@ -181,7 +181,7 @@ object RequestChannel extends Logging {
 
 class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMetricsGroup {
   private var responseListeners: List[(Int) => Unit] = Nil
-  //note: 一个 requestQueue 队列,n 个 responseQueues 队列
+  //note: 一个 requestQueue 队列,N 个 responseQueues 队列
   private val requestQueue = new ArrayBlockingQueue[RequestChannel.Request](queueSize)
   private val responseQueues = new Array[BlockingQueue[RequestChannel.Response]](numProcessors)
   for(i <- 0 until numProcessors)
@@ -208,18 +208,21 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
   }
 
   /** Send a request to be handled, potentially blocking until there is room in the queue for the request */
+  //note: 添加到请求队列，如果队列满了，将会阻塞
   def sendRequest(request: RequestChannel.Request) {
     requestQueue.put(request)
   }
 
   /** Send a response back to the socket server to be sent over the network */
+  //note: 将 response 添加到对应的队列中
   def sendResponse(response: RequestChannel.Response) {
     responseQueues(response.processor).put(response)
     for(onResponse <- responseListeners)
-      onResponse(response.processor)
+      onResponse(response.processor) //note: 调用对应 processor 的 wakeup 方法
   }
 
   /** No operation to take for the request, need to read more over the network */
+  //note: 添加一个不需要做任何处理的请求
   def noOperation(processor: Int, request: RequestChannel.Request) {
     responseQueues(processor).put(RequestChannel.Response(processor, request, null, RequestChannel.NoOpAction))
     for(onResponse <- responseListeners)
@@ -227,6 +230,7 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
   }
 
   /** Close the connection for the request */
+  //note: 添加一个关闭连接的请求
   def closeConnection(processor: Int, request: RequestChannel.Request) {
     responseQueues(processor).put(RequestChannel.Response(processor, request, null, RequestChannel.CloseConnectionAction))
     for(onResponse <- responseListeners)
@@ -234,14 +238,17 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
   }
 
   /** Get the next request or block until specified time has elapsed */
+  //note: 从 requestQueue 中获取下一个 request（有timeout 时间限制）
   def receiveRequest(timeout: Long): RequestChannel.Request =
     requestQueue.poll(timeout, TimeUnit.MILLISECONDS)
 
   /** Get the next request or block until there is one */
+  //note: 从requestQueue 中获取下一个 request，阻塞直到返回结果
   def receiveRequest(): RequestChannel.Request =
     requestQueue.take()
 
   /** Get a response for the given processor if there is one */
+  //note: 获取 response
   def receiveResponse(processor: Int): RequestChannel.Response = {
     val response = responseQueues(processor).poll()
     if (response != null)
@@ -249,6 +256,7 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
     response
   }
 
+  //note: 注册相应的 listener，参数是一个方法
   def addResponseListener(onResponse: Int => Unit) {
     responseListeners ::= onResponse
   }

@@ -181,6 +181,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         brokerState.newState(Starting)
 
         /* start scheduler */
+        //note: 后台处理的线程数
         kafkaScheduler.startup()
 
         /* setup zookeeper */
@@ -195,6 +196,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         this.logIdent = "[Kafka Server " + config.brokerId + "], "
 
         /* create and configure metrics */
+        //note: reporter 汇报 metrics
         val reporters = config.getConfiguredInstances(KafkaConfig.MetricReporterClassesProp, classOf[MetricsReporter],
             Map[String, AnyRef](KafkaConfig.BrokerIdProp -> (config.brokerId.toString)).asJava)
         reporters.add(new JmxReporter(jmxPrefix))
@@ -212,6 +214,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         metadataCache = new MetadataCache(config.brokerId)
         credentialProvider = new CredentialProvider(config.saslEnabledMechanisms)
 
+        //note: socketServer
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
         socketServer.startup()
 
@@ -269,6 +272,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           else
             endpoint
         }
+        //note: 根据 zk 的 session 情况做健康检查
         kafkaHealthcheck = new KafkaHealthcheck(config.brokerId, listeners, zkUtils, config.rack,
           config.interBrokerProtocolVersion)
         kafkaHealthcheck.startup()

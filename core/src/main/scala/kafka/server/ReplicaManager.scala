@@ -230,12 +230,13 @@ class ReplicaManager(val config: KafkaConfig,
     scheduler.schedule("isr-change-propagation", maybePropagateIsrChanges, period = 2500L, unit = TimeUnit.MILLISECONDS)
   }
 
+  //note: 停止副本同步，这个方法主要是删除副本文件
   def stopReplica(topicPartition: TopicPartition, deletePartition: Boolean): Short  = {
     stateChangeLogger.trace(s"Broker $localBrokerId handling stop replica (delete=$deletePartition) for partition $topicPartition")
     val errorCode = Errors.NONE.code
     getPartition(topicPartition) match {
       case Some(_) =>
-        if (deletePartition) {
+        if (deletePartition) { //note: delete = true，从物理上删除文件的情况
           val removedPartition = allPartitions.remove(topicPartition)
           if (removedPartition != null) {
             removedPartition.delete() // this will delete the local log

@@ -134,12 +134,12 @@ class KafkaApis(val requestChannel: RequestChannel,
         // for each new leader or follower, call coordinator to handle consumer group migration.
         // this callback is invoked under the replica state change lock to ensure proper order of
         // leadership changes
-        //note: __consumer_offset leader 迁移
+        //note: __consumer_offset 是 leader 的情况，读取相应 group 的 offset 信息
         updatedLeaders.foreach { partition =>
           if (partition.topic == Topic.GroupMetadataTopicName)
             coordinator.handleGroupImmigration(partition.partitionId)
         }
-        //note: __consumer_offset follower 迁移
+        //note: __consumer_offset 是 follower 的情况，如果之前是 leader，那么移除这个 partition 对应的信息
         updatedFollowers.foreach { partition =>
           if (partition.topic == Topic.GroupMetadataTopicName)
             coordinator.handleGroupEmigration(partition.partitionId)

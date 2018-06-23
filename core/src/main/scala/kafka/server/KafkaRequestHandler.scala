@@ -47,7 +47,7 @@ class KafkaRequestHandler(id: Int,
           // time_window is independent of the number of threads, each recorded idle
           // time should be discounted by # threads.
           val startSelectTime = time.nanoseconds
-          req = requestChannel.receiveRequest(300)
+          req = requestChannel.receiveRequest(300) //note: 从 request queue 中拿去 request
           val idleTime = time.nanoseconds - startSelectTime
           aggregateIdleMeter.mark(idleTime / totalHandlerThreads)
         }
@@ -59,7 +59,7 @@ class KafkaRequestHandler(id: Int,
         }
         req.requestDequeueTimeMs = time.milliseconds
         trace("Kafka request handler %d on broker %d handling request %s".format(id, brokerId, req))
-        apis.handle(req)
+        apis.handle(req) //note: 处理请求
       } catch {
         case e: Throwable => error("Exception when handling request", e)
       }

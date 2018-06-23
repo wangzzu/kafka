@@ -292,6 +292,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
                                        replicas: Seq[Int], callback: AbstractResponse => Unit = null) {
     val topicPartition = new TopicPartition(topic, partition)
 
+    //note: 将请求添加到对应的 broker 上
     brokerIds.filter(_ >= 0).foreach { brokerId =>
       val result = leaderAndIsrRequestMap.getOrElseUpdate(brokerId, mutable.Map.empty)
       result.put(topicPartition, PartitionStateInfo(leaderIsrAndControllerEpoch, replicas.toSet))
@@ -318,7 +319,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
   }
 
   /** Send UpdateMetadataRequest to the given brokers for the given partitions and partitions that are being deleted */
-  //note: 向所有的 Broker 发送 UpdateMetadataRequest 请求
+  //note: 向给定的 Broker 发送 UpdateMetadataRequest 请求
   def addUpdateMetadataRequestForBrokers(brokerIds: Seq[Int],
                                          partitions: collection.Set[TopicAndPartition] = Set.empty[TopicAndPartition],
                                          callback: AbstractResponse => Unit = null) {
@@ -334,6 +335,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
           } else {
             PartitionStateInfo(leaderIsrAndControllerEpoch, replicas)
           }
+          //note: 添加到对应的 request map 中
           updateMetadataRequestPartitionInfoMap.put(new TopicPartition(partition.topic, partition.partition), partitionStateInfo)
         case None =>
           info("Leader not yet assigned for partition %s. Skip sending UpdateMetadataRequest.".format(partition))
@@ -343,16 +345,16 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
     //note:过滤出要发送的 partition
     val filteredPartitions = {
       val givenPartitions = if (partitions.isEmpty)
-        controllerContext.partitionLeadershipInfo.keySet
+        controllerContext.partitionLeadershipInfo.keySet //note: Partitions 为空时，就过滤出所有的 topic
       else
         partitions
       if (controller.deleteTopicManager.partitionsToBeDeleted.isEmpty)
         givenPartitions
       else
-        givenPartitions -- controller.deleteTopicManager.partitionsToBeDeleted
+        givenPartitions -- controller.deleteTopicManager.partitionsToBeDeleted //note: 将要删除的 topic 过滤掉
     }
 
-    updateMetadataRequestBrokerSet ++= brokerIds.filter(_ >= 0)
+    updateMetadataRequestBrokerSet ++= brokerIds.filter(_ >= 0) //note: 将 broker 列表更新到要发送的集合中
     //note: 对于要更新 metadata 的 Partition,设置 beingDeleted 为 False
     filteredPartitions.foreach(partition => updateMetadataRequestPartitionInfo(partition, beingDeleted = false))
     //note: 要删除的 Partition 设置 BeingDeleted 为 True

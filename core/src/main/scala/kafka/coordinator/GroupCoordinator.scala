@@ -524,12 +524,12 @@ class GroupCoordinator(val brokerId: Int,
     group synchronized {
       info(s"Unloading group metadata for ${group.groupId} with generation ${group.generationId}")
       val previousState = group.currentState
-      group.transitionTo(Dead)
+      group.transitionTo(Dead) //note: 状态转移成 dead
 
       previousState match {
         case Empty | Dead =>
         case PreparingRebalance =>
-          for (member <- group.allMemberMetadata) {
+          for (member <- group.allMemberMetadata) { //note: 如果有 member 信息返回异常
             if (member.awaitingJoinCallback != null) {
               member.awaitingJoinCallback(joinError(member.memberId, Errors.NOT_COORDINATOR_FOR_GROUP.code))
               member.awaitingJoinCallback = null
@@ -538,7 +538,7 @@ class GroupCoordinator(val brokerId: Int,
           joinPurgatory.checkAndComplete(GroupKey(group.groupId))
 
         case Stable | AwaitingSync =>
-          for (member <- group.allMemberMetadata) {
+          for (member <- group.allMemberMetadata) { //note: 如果有 member 信息，返回异常
             if (member.awaitingSyncCallback != null) {
               member.awaitingSyncCallback(Array.empty[Byte], Errors.NOT_COORDINATOR_FOR_GROUP.code)
               member.awaitingSyncCallback = null
@@ -549,6 +549,7 @@ class GroupCoordinator(val brokerId: Int,
     }
   }
 
+  //note: group 加载完成后，设置下一次的心跳时间
   private def onGroupLoaded(group: GroupMetadata) {
     group synchronized {
       info(s"Loading group metadata for ${group.groupId} with generation ${group.generationId}")
@@ -557,10 +558,12 @@ class GroupCoordinator(val brokerId: Int,
     }
   }
 
+  //note: 加载这个 Partition 对应的 group offset 信息
   def handleGroupImmigration(offsetTopicPartitionId: Int) {
     groupManager.loadGroupsForPartition(offsetTopicPartitionId, onGroupLoaded)
   }
 
+  //note: 移除这个 Partition 对应的 group offset 信息
   def handleGroupEmigration(offsetTopicPartitionId: Int) {
     groupManager.removeGroupsForPartition(offsetTopicPartitionId, onGroupUnloaded)
   }
