@@ -394,7 +394,7 @@ class GroupMetadataManager(val brokerId: Int,
         }
       }
 
-      //note: 开始加载，加载成功的话，将该 Partition 从 loadingPartitions 集合中移除，添加到 ownedParttition 集合中
+      //note: 开始加载，加载成功的话，将该 Partition 从 loadingPartitions 集合中移除，添加到 ownedPartition 集合中
       try {
         loadGroupsAndOffsets(topicPartition, onGroupLoaded)
       } catch {

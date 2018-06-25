@@ -357,7 +357,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
   def onControllerFailover() {
     if(isRunning) {
       info("Broker %d starting become controller state transition".format(config.brokerId))
-      readControllerEpochFromZookeeper() //note: 从 zk 获取 controllrt 的 epoch 和 zkVersion 值
+      readControllerEpochFromZookeeper() //note: 从 zk 获取 controller 的 epoch 和 zkVersion 值
       incrementControllerEpoch(zkUtils.zkClient) //note: 更新 Controller 的 epoch 和 zkVersion 值，可能会抛出异常
 
       // before reading source of truth from zookeeper, register the listeners to get broker/topic callbacks

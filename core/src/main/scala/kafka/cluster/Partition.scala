@@ -161,7 +161,7 @@ class Partition(val topic: String,
    * from the time when this broker was the leader last time) and setting the new leader and ISR.
    * If the leader replica id does not change, return false to indicate the replica manager.
    */
-  //note: 通过重置远程副本的 LEO、new leader 和 isr 信息来设置本地副本为 leader 副本,如果 leader replica 不变,向 ReplicaManager 返回 false
+  //note: 将本地副本设置为 leader, 如果 leader 不变,向 ReplicaManager 返回 false
   def makeLeader(controllerId: Int, partitionStateInfo: PartitionState, correlationId: Int): Boolean = {
     val (leaderHWIncremented, isNewLeader) = inWriteLock(leaderIsrUpdateLock) {
       val allReplicas = partitionStateInfo.replicas.asScala.map(_.toInt)
@@ -174,15 +174,16 @@ class Partition(val topic: String,
       //note: 获取新的 isr 列表
       val newInSyncReplicas = partitionStateInfo.isr.asScala.map(r => getOrCreateReplica(r)).toSet
       // remove assigned replicas that have been removed by the controller
-      //note: 删除已经被 controller 移除的副本
+      //note: 将已经在不在 AR 中的副本移除
       (assignedReplicas.map(_.brokerId) -- allReplicas).foreach(removeReplica)
       inSyncReplicas = newInSyncReplicas
       leaderEpoch = partitionStateInfo.leaderEpoch
       zkVersion = partitionStateInfo.zkVersion
+      //note: 判断是否是新的 leader
       val isNewLeader =
-        if (leaderReplicaIdOpt.isDefined && leaderReplicaIdOpt.get == localBrokerId) {
+        if (leaderReplicaIdOpt.isDefined && leaderReplicaIdOpt.get == localBrokerId) {//note: leader 没有更新
           false
-        } else {//note: leader 没有更新
+        } else {
           leaderReplicaIdOpt = Some(localBrokerId)
           true
         }
@@ -190,17 +191,17 @@ class Partition(val topic: String,
       val curLeaderLogEndOffset = leaderReplica.logEndOffset.messageOffset //note: 获取 leader replica 的 the end offset
       val curTimeMs = time.milliseconds
       // initialize lastCaughtUpTime of replicas as well as their lastFetchTimeMs and lastFetchLeaderLogEndOffset.
-      (assignedReplicas - leaderReplica).foreach { replica =>
+      (assignedReplicas - leaderReplica).foreach { replica => //note: 对于 isr 中的 replica,更新 LastCaughtUpTime
         val lastCaughtUpTimeMs = if (inSyncReplicas.contains(replica)) curTimeMs else 0L
-        replica.resetLastCaughtUpTime(curLeaderLogEndOffset, curTimeMs, lastCaughtUpTimeMs) //note: 更新 replica 最近一次拉取时间
+        replica.resetLastCaughtUpTime(curLeaderLogEndOffset, curTimeMs, lastCaughtUpTimeMs)
       }
       // we may need to increment high watermark since ISR could be down to 1
-      if (isNewLeader) {
+      if (isNewLeader) {  //note: 如果是新的 leader,那么需要
         // construct the high watermark metadata for the new leader replica
         //note: 为新的 leader 构造 replica 的 HW metadata
         leaderReplica.convertHWToLocalOffsetMetadata()
         // reset log end offset for remote replicas
-        //note: 更新远程副本的 the end offset
+        //note: 更新远程副本的副本同步信息（设置为 unKnown）
         assignedReplicas.filter(_.brokerId != localBrokerId).foreach(_.updateLogReadResult(LogReadResult.UnknownLogReadResult))
       }
       //note: 如果满足更新 isr 的条件,就更新 HW 信息
