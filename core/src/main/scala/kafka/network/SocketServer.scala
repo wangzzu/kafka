@@ -180,7 +180,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
  */
 private[kafka] abstract class AbstractServerThread(connectionQuotas: ConnectionQuotas) extends Runnable with Logging {
 
-  private val startupLatch = new CountDownLatch(1)
+  private val startupLatch = new CountDownLatch(1) //note: 初始化一个为1的 CountDownLatch
 
   // `shutdown()` is invoked before `startupComplete` and `shutdownComplete` if an exception is thrown in the constructor
   // (e.g. if the address is already in use). We want `shutdown` to proceed in such cases, so we first assign an open
@@ -349,6 +349,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
    */
   //note: 一个新的连接
   def accept(key: SelectionKey, processor: Processor) {
+    //note: accept 事件发生时，获取注册到 selector 上的 ServerSocketChannel
     val serverSocketChannel = key.channel().asInstanceOf[ServerSocketChannel]
     val socketChannel = serverSocketChannel.accept()
     try {
@@ -364,6 +365,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
                   socketChannel.socket.getSendBufferSize, sendBufferSize,
                   socketChannel.socket.getReceiveBufferSize, recvBufferSize))
 
+      //note: 轮询选择不同的 processor
       processor.accept(socketChannel)
     } catch {
       case e: TooManyConnectionsException =>
