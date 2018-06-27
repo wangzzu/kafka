@@ -56,10 +56,10 @@ import scala.util.control.{ControlThrowable, NonFatal}
 //note: M：M 个 handler 线程来处理请求，并且返回 response 给 processor 线程
 class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time, val credentialProvider: CredentialProvider) extends Logging with KafkaMetricsGroup {
 
-  private val endpoints = config.listeners.map(l => l.listenerName -> l).toMap
+  private val endpoints = config.listeners.map(l => l.listenerName -> l).toMap //note: broker 开放的端口数
   private val numProcessorThreads = config.numNetworkThreads //note: num.network.threads 默认为 3个，即 processor
   private val maxQueuedRequests = config.queuedMaxRequests //note:  queued.max.requests，request 队列中允许的最多请求数，默认是500
-  private val totalProcessorThreads = numProcessorThreads * endpoints.size
+  private val totalProcessorThreads = numProcessorThreads * endpoints.size //note: 每个端口会对应 N 个 processor
 
   private val maxConnectionsPerIp = config.maxConnectionsPerIp //note: 默认 2147483647
   private val maxConnectionsPerIpOverrides = config.maxConnectionsPerIpOverrides
@@ -99,7 +99,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
         val securityProtocol = endpoint.securityProtocol
         val processorEndIndex = processorBeginIndex + numProcessorThreads
 
-        //note: M 个 processor
+        //note: N 个 processor
         for (i <- processorBeginIndex until processorEndIndex)
           processors(i) = newProcessor(i, connectionQuotas, listenerName, securityProtocol)
 
