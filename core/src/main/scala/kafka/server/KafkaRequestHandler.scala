@@ -59,7 +59,7 @@ class KafkaRequestHandler(id: Int,
         }
         req.requestDequeueTimeMs = time.milliseconds
         trace("Kafka request handler %d on broker %d handling request %s".format(id, brokerId, req))
-        apis.handle(req) //note: 处理请求
+        apis.handle(req) //note: 处理请求,并将处理的结果通过 sendResponse 放入 response queue 中
       } catch {
         case e: Throwable => error("Exception when handling request", e)
       }
@@ -83,6 +83,7 @@ class KafkaRequestHandlerPool(val brokerId: Int,
   val runnables = new Array[KafkaRequestHandler](numThreads)
   //note: 建立 M 个（numThreads）KafkaRequestHandler
   for(i <- 0 until numThreads) {
+    //note: requestChannel 是 Processor 存放 request 请求的地方,也是 Handler 处理完请求存放 response 的地方
     runnables(i) = new KafkaRequestHandler(i, brokerId, aggregateIdleMeter, numThreads, requestChannel, apis, time)
     threads(i) = Utils.daemonThread("kafka-request-handler-" + i, runnables(i))
     threads(i).start()
