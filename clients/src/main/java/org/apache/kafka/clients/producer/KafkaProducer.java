@@ -337,7 +337,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             String transactionalId = userProvidedConfigs.containsKey(ProducerConfig.TRANSACTIONAL_ID_CONFIG) ?
                     (String) userProvidedConfigs.get(ProducerConfig.TRANSACTIONAL_ID_CONFIG) : null;
-            LogContext logContext;
+            LogContext logContext; //note: log 做了一个封装,打日志时,
             if (transactionalId == null)
                 logContext = new LogContext(String.format("[Producer clientId=%s] ", clientId));
             else
@@ -386,9 +386,13 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             this.maxBlockTimeMs = config.getLong(ProducerConfig.MAX_BLOCK_MS_CONFIG);
             this.requestTimeoutMs = config.getInt(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG);
+            //note: 构造一个 transactionManager 对象
             this.transactionManager = configureTransactionState(config, logContext, log);
+            //note: 获取 retry, 幂等性情况,默认为 MAX_VALUE(用户配置的话,以用户配置为准)
             int retries = configureRetries(config, transactionManager != null, log);
+            //note: 配置幂等性的话, MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION 不能超过 5
             int maxInflightRequests = configureInflightRequests(config, transactionManager != null);
+            //note: 配置幂等性的话, acks 必须设置为 -1
             short acks = configureAcks(config, transactionManager != null, log);
 
             this.apiVersions = new ApiVersions();
@@ -461,23 +465,24 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
         TransactionManager transactionManager = null;
 
-        boolean userConfiguredIdempotence = false;
+        boolean userConfiguredIdempotence = false; //note: 是否设置幂等性
         if (config.originals().containsKey(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG))
             userConfiguredIdempotence = true;
 
-        boolean userConfiguredTransactions = false;
+        boolean userConfiguredTransactions = false; //note: 是否使用事务性
         if (config.originals().containsKey(ProducerConfig.TRANSACTIONAL_ID_CONFIG))
             userConfiguredTransactions = true;
 
-        boolean idempotenceEnabled = config.getBoolean(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG);
+        boolean idempotenceEnabled = config.getBoolean(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG); //note: 使用幂等性
 
+        //note: 使用事务性时,必须设置幂等性,否则抛出异常
         if (!idempotenceEnabled && userConfiguredIdempotence && userConfiguredTransactions)
             throw new ConfigException("Cannot set a " + ProducerConfig.TRANSACTIONAL_ID_CONFIG + " without also enabling idempotence.");
 
         if (userConfiguredTransactions)
             idempotenceEnabled = true;
 
-        if (idempotenceEnabled) {
+        if (idempotenceEnabled) { //note: 初始化 TransactionManager
             String transactionalId = config.getString(ProducerConfig.TRANSACTIONAL_ID_CONFIG);
             int transactionTimeoutMs = config.getInt(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG);
             long retryBackoffMs = config.getLong(ProducerConfig.RETRY_BACKOFF_MS_CONFIG);
@@ -491,12 +496,13 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return transactionManager;
     }
 
+    //note: 获取 retry
     private static int configureRetries(ProducerConfig config, boolean idempotenceEnabled, Logger log) {
         boolean userConfiguredRetries = false;
         if (config.originals().containsKey(ProducerConfig.RETRIES_CONFIG)) {
             userConfiguredRetries = true;
         }
-        if (idempotenceEnabled && !userConfiguredRetries) {
+        if (idempotenceEnabled && !userConfiguredRetries) { //note: 设置幂等性、没有设置 retry 的情况下, retry 被设置为 MAX_VALUE
             // We recommend setting infinite retries when the idempotent producer is enabled, so it makes sense to make
             // this the default.
             log.info("Overriding the default retries config to the recommended value of {} since the idempotent " +
@@ -509,6 +515,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return config.getInt(ProducerConfig.RETRIES_CONFIG);
     }
 
+    //note: 配置幂等性的话, MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION 不能超过 5
     private static int configureInflightRequests(ProducerConfig config, boolean idempotenceEnabled) {
         if (idempotenceEnabled && 5 < config.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION)) {
             throw new ConfigException("Must set " + ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION + " to at most 5" +
@@ -517,6 +524,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return config.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION);
     }
 
+    //note: 配置幂等性的话, ack 必须设置为 -1
     private static short configureAcks(ProducerConfig config, boolean idempotenceEnabled, Logger log) {
         boolean userConfiguredAcks = false;
         short acks = (short) parseAcks(config.getString(ProducerConfig.ACKS_CONFIG));
