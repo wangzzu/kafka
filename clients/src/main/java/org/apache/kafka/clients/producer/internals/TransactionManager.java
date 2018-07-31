@@ -70,10 +70,12 @@ public class TransactionManager {
     private final int transactionTimeoutMs;
 
     // The base sequence of the next batch bound for a given partition.
+    //note: partition 下一个 batch 对应的基准 sequence
     private final Map<TopicPartition, Integer> nextSequence;
 
     // The sequence of the last record of the last ack'd batch from the given partition. When there are no
     // in flight requests for a partition, the lastAckedSequence(topicPartition) == nextSequence(topicPartition) - 1.
+    //note: partition 的 last ack'd batch 对应的 sequence，如果现在没有 Produce 请求发送，那么 lastAckedSequence(topicPartition) == nextSequence(topicPartition) - 1.
     private final Map<TopicPartition, Integer> lastAckedSequence;
 
     // If a batch bound for a partition expired locally after being sent at least once, the partition has is considered
@@ -82,16 +84,24 @@ public class TransactionManager {
     // successfully (indicating that the expired batch actually made it to the broker). If we don't get any successful
     // responses for the partition once the inflight request count falls to zero, we reset the producer id and
     // consequently clear this data structure as well.
+    //note: 如果一个 partition 的 batch 在至少发送一次后在本地过期，那么这个 partition 将会被认为有一个未解决的状态
+    //note: 在这个 unresolved state 被解决之前，将不会再往这个 partition 分配更多的 sequence numbers
+    //note: 如果当 in-flight request 数变成0时，这个 partition 还没有收到任何成功的响应，那么我们将会重置 producer id，并且清空数据
     private final Set<TopicPartition> partitionsWithUnresolvedSequences;
 
     // Keep track of the in flight batches bound for a partition, ordered by sequence. This helps us to ensure that
     // we continue to order batches by the sequence numbers even when the responses come back out of order during
     // leader failover. We add a batch to the queue when it is drained, and remove it when the batch completes
     // (either successfully or through a fatal failure).
+    //note: 追踪每个 partition 正在发送的 batch（按 sequence 顺序）
+    //note: 这将有助于确保 batch 有序性（按 sequence numbers）当 leader 失败时，可能收到的响应是乱序的
+    //note: 发送时将 batch 添加进来，当请求完成（成功或失败）时，从这个队列中移除
     private final Map<TopicPartition, PriorityQueue<ProducerBatch>> inflightBatchesBySequence;
 
     // We keep track of the last acknowledged offset on a per partition basis in order to disambiguate UnknownProducer
     // responses which are due to the retention period elapsing, and those which are due to actual lost data.
+    //note: 这个集合是记录每个 partition 对应的 last 确认 ack 的 offset
+    //note: 这将有助于处理 UnknownProducer 响应（由于过期或者数据丢失导致的）
     private final Map<TopicPartition, Long> lastAckedOffset;
 
     private final PriorityQueue<TxnRequestHandler> pendingRequests;
@@ -263,10 +273,12 @@ public class TransactionManager {
     public synchronized void maybeAddPartitionToTransaction(TopicPartition topicPartition) {
         failIfNotReadyForSend();
 
+        //note: 如果 partition 已经添加到 partitionsInTransaction、pendingPartitionsInTransaction、newPartitionsInTransaction中
         if (isPartitionAdded(topicPartition) || isPartitionPendingAdd(topicPartition))
             return;
 
         log.debug("Begin adding new partition {} to transaction", topicPartition);
+        //note: 将 Partition 添加到 newPartitionsInTransaction 集合中
         newPartitionsInTransaction.add(topicPartition);
     }
 
@@ -332,6 +344,7 @@ public class TransactionManager {
         transitionTo(State.ABORTABLE_ERROR, exception);
     }
 
+    //note: 事务处理遇到错误
     synchronized void transitionToFatalError(RuntimeException exception) {
         transitionTo(State.FATAL_ERROR, exception);
     }
@@ -664,6 +677,7 @@ public class TransactionManager {
         inFlightRequestCorrelationId = correlationId;
     }
 
+    //note: 请求处理完成，这个是清空 inFlightRequestCorrelationId 记录
     void clearInFlightTransactionalRequestCorrelationId() {
         inFlightRequestCorrelationId = NO_INFLIGHT_REQUEST_CORRELATION_ID;
     }
@@ -796,11 +810,13 @@ public class TransactionManager {
         return false;
     }
 
+    //note: 添加到 pendingRequest 集合中（这个集合保存的是正在等待的请求）
     private void enqueueRequest(TxnRequestHandler requestHandler) {
         log.debug("Enqueuing transactional request {}", requestHandler.requestBuilder());
         pendingRequests.add(requestHandler);
     }
 
+    //note: 寻找 Coordinator
     private synchronized void lookupCoordinator(FindCoordinatorRequest.CoordinatorType type, String coordinatorKey) {
         switch (type) {
             case GROUP:
@@ -876,6 +892,7 @@ public class TransactionManager {
             result.done();
         }
 
+        //note: 将请求重新加入队列
         void reenqueue() {
             synchronized (TransactionManager.this) {
                 this.isRetry = true;
@@ -890,17 +907,18 @@ public class TransactionManager {
         @Override
         public void onComplete(ClientResponse response) {
             if (response.requestHeader().correlationId() != inFlightRequestCorrelationId) {
+                //note: 正常情况下，只允许一个事务性请求在发送，这里是多于了一个
                 fatalError(new RuntimeException("Detected more than one in-flight transactional request."));
             } else {
-                clearInFlightTransactionalRequestCorrelationId();
-                if (response.wasDisconnected()) {
+                clearInFlightTransactionalRequestCorrelationId(); //note: 清空记录
+                if (response.wasDisconnected()) { //note: 连接断开，重试
                     log.debug("Disconnected from {}. Will retry.", response.destination());
                     if (this.needsCoordinator())
                         lookupCoordinator(this.coordinatorType(), this.coordinatorKey());
                     reenqueue();
-                } else if (response.versionMismatch() != null) {
+                } else if (response.versionMismatch() != null) { //note: 版本问题，致命错误
                     fatalError(response.versionMismatch());
-                } else if (response.hasResponse()) {
+                } else if (response.hasResponse()) { //note: 需要处理返回结果，不同的 handler 进行不同的处理
                     log.trace("Received transactional response {} for request {}", response.responseBody(),
                             requestBuilder());
                     synchronized (TransactionManager.this) {

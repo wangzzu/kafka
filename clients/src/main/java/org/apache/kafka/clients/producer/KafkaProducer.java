@@ -337,7 +337,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             String transactionalId = userProvidedConfigs.containsKey(ProducerConfig.TRANSACTIONAL_ID_CONFIG) ?
                     (String) userProvidedConfigs.get(ProducerConfig.TRANSACTIONAL_ID_CONFIG) : null;
-            LogContext logContext; //note: log 做了一个封装,打日志时,
+            LogContext logContext; //note: log 做了一个封装,打日志时，添加了相应的格式
             if (transactionalId == null)
                 logContext = new LogContext(String.format("[Producer clientId=%s] ", clientId));
             else
@@ -461,6 +461,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         }
     }
 
+    //note: 如果设置了幂等性的话，就会初始化 TransactionManager（设置事务性的话，等同于设置幂等性）
     private static TransactionManager configureTransactionState(ProducerConfig config, LogContext logContext, Logger log) {
 
         TransactionManager transactionManager = null;
@@ -544,6 +545,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return acks;
     }
 
+    //note: 兼容 acks 设置为 all 或者 -1 的情况
     private static int parseAcks(String acksString) {
         try {
             return acksString.trim().equalsIgnoreCase("all") ? -1 : Integer.parseInt(acksString.trim());
@@ -832,6 +834,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             // producer callback will make sure to call both 'callback' and interceptor callback
             Callback interceptCallback = new InterceptorCallback<>(callback, this.interceptors, tp);
 
+            //note: 如何开启了幂等性或事务性，需要做一些处理
             if (transactionManager != null && transactionManager.isTransactional())
                 transactionManager.maybeAddPartitionToTransaction(tp);
 
@@ -1127,6 +1130,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * if the record has partition returns the value otherwise
      * calls configured partitioner class to compute the partition.
      */
+    //note: 计算该 Record 要发送的 partition id
     private int partition(ProducerRecord<K, V> record, byte[] serializedKey, byte[] serializedValue, Cluster cluster) {
         Integer partition = record.partition();
         return partition != null ?
@@ -1135,6 +1139,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                         record.topic(), record.key(), serializedKey, record.value(), serializedValue, cluster);
     }
 
+    //note: 如果 transactionManager 没有初始化，就抛出相应的异常
     private void throwIfNoTransactionManager() {
         if (transactionManager == null)
             throw new IllegalStateException("Cannot use transactional methods without enabling transactions " +
