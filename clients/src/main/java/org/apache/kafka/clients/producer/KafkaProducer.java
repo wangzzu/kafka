@@ -338,7 +338,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             String transactionalId = userProvidedConfigs.containsKey(ProducerConfig.TRANSACTIONAL_ID_CONFIG) ?
                     (String) userProvidedConfigs.get(ProducerConfig.TRANSACTIONAL_ID_CONFIG) : null;
-            LogContext logContext;
+            LogContext logContext; //note: log 做了一个封装,打日志时添加了相应的日志格式
             if (transactionalId == null)
                 logContext = new LogContext(String.format("[Producer clientId=%s] ", clientId));
             else
@@ -387,9 +387,13 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             this.maxBlockTimeMs = config.getLong(ProducerConfig.MAX_BLOCK_MS_CONFIG);
             this.requestTimeoutMs = config.getInt(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG);
+            //note: 构造一个 transactionManager 对象
             this.transactionManager = configureTransactionState(config, logContext, log);
+            //note: 获取 retry, 幂等性情况,默认为 MAX_VALUE(用户配置的话,以用户配置为准)
             int retries = configureRetries(config, transactionManager != null, log);
+            //note: 配置幂等性的话, MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION 不能超过 5
             int maxInflightRequests = configureInflightRequests(config, transactionManager != null);
+            //note: 配置幂等性的话, acks 必须设置为 -1
             short acks = configureAcks(config, transactionManager != null, log);
 
             this.apiVersions = new ApiVersions();
@@ -458,19 +462,20 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         }
     }
 
+    //note: 如果设置了幂等性的话，就会初始化 TransactionManager（设置事务性的话，等同于设置幂等性）
     private static TransactionManager configureTransactionState(ProducerConfig config, LogContext logContext, Logger log) {
 
         TransactionManager transactionManager = null;
 
-        boolean userConfiguredIdempotence = false;
+        boolean userConfiguredIdempotence = false; //note: 是否设置幂等性
         if (config.originals().containsKey(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG))
             userConfiguredIdempotence = true;
 
-        boolean userConfiguredTransactions = false;
+        boolean userConfiguredTransactions = false; //note: 是否使用事务性
         if (config.originals().containsKey(ProducerConfig.TRANSACTIONAL_ID_CONFIG))
             userConfiguredTransactions = true;
 
-        boolean idempotenceEnabled = config.getBoolean(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG);
+        boolean idempotenceEnabled = config.getBoolean(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG); //note: 使用幂等性
 
         if (!idempotenceEnabled && userConfiguredIdempotence && userConfiguredTransactions)
             throw new ConfigException("Cannot set a " + ProducerConfig.TRANSACTIONAL_ID_CONFIG + " without also enabling idempotence.");
@@ -478,7 +483,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         if (userConfiguredTransactions)
             idempotenceEnabled = true;
 
-        if (idempotenceEnabled) {
+        if (idempotenceEnabled) { //note: 初始化 TransactionManager
             String transactionalId = config.getString(ProducerConfig.TRANSACTIONAL_ID_CONFIG);
             int transactionTimeoutMs = config.getInt(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG);
             long retryBackoffMs = config.getLong(ProducerConfig.RETRY_BACKOFF_MS_CONFIG);
@@ -492,12 +497,13 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return transactionManager;
     }
 
+    //note: 获取 retry
     private static int configureRetries(ProducerConfig config, boolean idempotenceEnabled, Logger log) {
         boolean userConfiguredRetries = false;
         if (config.originals().containsKey(ProducerConfig.RETRIES_CONFIG)) {
             userConfiguredRetries = true;
         }
-        if (idempotenceEnabled && !userConfiguredRetries) {
+        if (idempotenceEnabled && !userConfiguredRetries) { //note: 设置幂等性、没有设置 retry 的情况下, retry 被设置为 MAX_VALUE
             // We recommend setting infinite retries when the idempotent producer is enabled, so it makes sense to make
             // this the default.
             log.info("Overriding the default retries config to the recommended value of {} since the idempotent " +
@@ -510,6 +516,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return config.getInt(ProducerConfig.RETRIES_CONFIG);
     }
 
+    //note: 配置幂等性的话, MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION 不能超过 5
     private static int configureInflightRequests(ProducerConfig config, boolean idempotenceEnabled) {
         if (idempotenceEnabled && 5 < config.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION)) {
             throw new ConfigException("Must set " + ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION + " to at most 5" +
@@ -518,6 +525,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return config.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION);
     }
 
+    //note: 配置幂等性的话, ack 必须设置为 -1
     private static short configureAcks(ProducerConfig config, boolean idempotenceEnabled, Logger log) {
         boolean userConfiguredAcks = false;
         short acks = (short) parseAcks(config.getString(ProducerConfig.ACKS_CONFIG));
@@ -537,6 +545,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return acks;
     }
 
+    //note: 兼容 acks 设置为 all 或者 -1 的情况
     private static int parseAcks(String acksString) {
         try {
             return acksString.trim().equalsIgnoreCase("all") ? -1 : Integer.parseInt(acksString.trim());
@@ -858,6 +867,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             // producer callback will make sure to call both 'callback' and interceptor callback
             Callback interceptCallback = new InterceptorCallback<>(callback, this.interceptors, tp);
 
+            //note: 如何开启了幂等性或事务性，需要做一些处理
             if (transactionManager != null && transactionManager.isTransactional())
                 transactionManager.maybeAddPartitionToTransaction(tp);
 
@@ -1155,6 +1165,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * if the record has partition returns the value otherwise
      * calls configured partitioner class to compute the partition.
      */
+    //note: 计算该 Record 要发送的 partition id
     private int partition(ProducerRecord<K, V> record, byte[] serializedKey, byte[] serializedValue, Cluster cluster) {
         Integer partition = record.partition();
         return partition != null ?
@@ -1163,6 +1174,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                         record.topic(), record.key(), serializedKey, record.value(), serializedValue, cluster);
     }
 
+    //note: 如果 transactionManager 没有初始化，就抛出相应的异常
     private void throwIfNoTransactionManager() {
         if (transactionManager == null)
             throw new IllegalStateException("Cannot use transactional methods without enabling transactions " +

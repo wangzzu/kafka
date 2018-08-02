@@ -198,12 +198,14 @@ public final class RecordAccumulator {
                 if (closed)
                     throw new KafkaException("Producer closed while send in progress");
                 RecordAppendResult appendResult = tryAppend(timestamp, key, value, headers, callback, dq);
-                if (appendResult != null)
+                if (appendResult != null) //note: msg 可以写入当前的 batch 中
                     return appendResult;
             }
 
+            //note: 当前 tp 对应的 queue 没有 batch，或者最新的 batch 没有足够的空间放入这个 msg 的情况下
             // we don't have an in-progress record batch try to allocate a new batch
             byte maxUsableMagic = apiVersions.maxUsableProduceMagic();
+            //note: 这里的 batch size 是
             int size = Math.max(this.batchSize, AbstractRecords.estimateSizeInBytesUpperBound(maxUsableMagic, compression, key, value, headers));
             log.trace("Allocating a new {} byte message buffer for topic {} partition {}", size, tp.topic(), tp.partition());
             buffer = free.allocate(size, maxTimeToBlock);
@@ -213,11 +215,12 @@ public final class RecordAccumulator {
                     throw new KafkaException("Producer closed while send in progress");
 
                 RecordAppendResult appendResult = tryAppend(timestamp, key, value, headers, callback, dq);
-                if (appendResult != null) {
+                if (appendResult != null) { //note: 如果发现当前的 tp 有对应的 batch，并且可以放下当前 msg 的情况下（因为这里的方法并不是全部加锁处理）
                     // Somebody else found us a batch, return the one we waited for! Hopefully this doesn't happen often...
                     return appendResult;
                 }
 
+                //note: 构造一个新的 ProducerBatch
                 MemoryRecordsBuilder recordsBuilder = recordsBuilder(buffer, maxUsableMagic);
                 ProducerBatch batch = new ProducerBatch(tp, recordsBuilder, time.milliseconds());
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, headers, callback, time.milliseconds()));
@@ -226,6 +229,7 @@ public final class RecordAccumulator {
                 incomplete.add(batch);
 
                 // Don't deallocate this buffer in the finally block as it's being used in the record batch
+                //note: 因为当前的 batch 还在使用，并不想在 finally 中释放这块内存
                 buffer = null;
 
                 return new RecordAppendResult(future, dq.size() > 1 || batch.isFull(), true);
@@ -253,6 +257,7 @@ public final class RecordAccumulator {
      *  and memory records built) in one of the following cases (whichever comes first): right before send,
      *  if it is expired, or when the producer is closed.
      */
+    //note: 向 ProducerBatch 追加一个 msg，如果当前 queue 中最后一个 ProducerBatch 没有足够的空间，那么会返回一个 null
     private RecordAppendResult tryAppend(long timestamp, byte[] key, byte[] value, Header[] headers,
                                          Callback callback, Deque<ProducerBatch> deque) {
         ProducerBatch last = deque.peekLast();

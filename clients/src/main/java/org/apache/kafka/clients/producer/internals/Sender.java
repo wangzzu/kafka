@@ -199,7 +199,7 @@ public class Sender implements Runnable {
      * @param now The current POSIX time in milliseconds
      */
     void run(long now) {
-        if (transactionManager != null) {
+        if (transactionManager != null) { //note: 设置幂等性的情况下
             try {
                 if (transactionManager.shouldResetProducerStateAfterResolvingSequences())
                     // Check if the previous run expired batches which requires a reset of the producer state.
@@ -338,7 +338,7 @@ public class Sender implements Runnable {
                 if (nextRequestHandler.needsCoordinator()) {
                     targetNode = transactionManager.coordinator(nextRequestHandler.coordinatorType());
                     if (targetNode == null) {
-                        transactionManager.lookupCoordinator(nextRequestHandler);
+                        transactionManager.lookupCoordinator(nextRequestHandler); //note: 连接 TXN Coordinator
                         break;
                     }
 
