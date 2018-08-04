@@ -665,6 +665,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         });
     }
 
+    //note: 做了一些异常处理
     private void maybeAutoCommitOffsetsSync(long timeoutMs) {
         if (autoCommitEnabled) {
             Map<TopicPartition, OffsetAndMetadata> allConsumedOffsets = subscriptions.allConsumed();
