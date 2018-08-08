@@ -205,13 +205,14 @@ public class Sender implements Runnable {
                     // Check if the previous run expired batches which requires a reset of the producer state.
                     transactionManager.resetProducerId();
 
-                if (!transactionManager.isTransactional()) {
+                if (!transactionManager.isTransactional()) { //note: 只设置幂等性的情况下，只需要确保有相应的 PID 即可
                     // this is an idempotent producer, so make sure we have a producer id
-                    maybeWaitForProducerId();
+                    maybeWaitForProducerId(); //note: 获取 Producer 的 PID 和 epoch 信息（while 等待直接返回结果）
                 } else if (transactionManager.hasUnresolvedSequences() && !transactionManager.hasFatalError()) {
                     transactionManager.transitionToFatalError(new KafkaException("The client hasn't received acknowledgment for " +
                             "some previously sent messages and can no longer retry them. It isn't safe to continue."));
                 } else if (transactionManager.hasInFlightTransactionalRequest() || maybeSendTransactionalRequest(now)) {
+                    //note: 如果有事务性请求正在发送，这里会直接返回
                     // as long as there are outstanding transactional requests, we simply wait for them to return
                     client.poll(retryBackoffMs, now);
                     return;
@@ -220,6 +221,7 @@ public class Sender implements Runnable {
                 // do not continue sending if the transaction manager is in a failed state or if there
                 // is no producer id (for the idempotent case).
                 if (transactionManager.hasFatalError() || !transactionManager.hasProducerId()) {
+                    //note: 如果 TXN Manager 在错误的状态或者没有对应的 PID
                     RuntimeException lastError = transactionManager.lastError();
                     if (lastError != null)
                         maybeAbortBatches(lastError);
@@ -235,7 +237,7 @@ public class Sender implements Runnable {
             }
         }
 
-        long pollTimeout = sendProducerData(now);
+        long pollTimeout = sendProducerData(now); //note: 发送数据
         client.poll(pollTimeout, now);
     }
 
@@ -406,6 +408,7 @@ public class Sender implements Runnable {
         initiateClose();
     }
 
+    //note: 发送 InitPidRequest 请求，并获取相应的返回结果
     private ClientResponse sendAndAwaitInitProducerIdRequest(Node node) throws IOException {
         String nodeId = node.idString();
         InitProducerIdRequest.Builder builder = new InitProducerIdRequest.Builder(null);
@@ -421,15 +424,16 @@ public class Sender implements Runnable {
         return null;
     }
 
+    //note: 等待直到 Producer 获取到相应的 PID 和 epoch 信息
     private void maybeWaitForProducerId() {
         while (!transactionManager.hasProducerId() && !transactionManager.hasError()) {
             try {
-                Node node = awaitLeastLoadedNodeReady(requestTimeoutMs);
+                Node node = awaitLeastLoadedNodeReady(requestTimeoutMs); //note: 选取 node（连接最少的 node）
                 if (node != null) {
-                    ClientResponse response = sendAndAwaitInitProducerIdRequest(node);
+                    ClientResponse response = sendAndAwaitInitProducerIdRequest(node); //note: 发送 InitPidRequest
                     InitProducerIdResponse initProducerIdResponse = (InitProducerIdResponse) response.responseBody();
                     Errors error = initProducerIdResponse.error();
-                    if (error == Errors.NONE) {
+                    if (error == Errors.NONE) { //note: 更新 Producer 的 PID 和 epoch 信息
                         ProducerIdAndEpoch producerIdAndEpoch = new ProducerIdAndEpoch(
                                 initProducerIdResponse.producerId(), initProducerIdResponse.epoch());
                         transactionManager.setProducerIdAndEpoch(producerIdAndEpoch);

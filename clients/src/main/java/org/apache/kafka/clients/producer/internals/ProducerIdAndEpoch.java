@@ -19,6 +19,7 @@ package org.apache.kafka.clients.producer.internals;
 import static org.apache.kafka.common.record.RecordBatch.NO_PRODUCER_EPOCH;
 import static org.apache.kafka.common.record.RecordBatch.NO_PRODUCER_ID;
 
+//note: 记录 producer 的 pid 和 epoch
 class ProducerIdAndEpoch {
     static final ProducerIdAndEpoch NONE = new ProducerIdAndEpoch(NO_PRODUCER_ID, NO_PRODUCER_EPOCH);
 

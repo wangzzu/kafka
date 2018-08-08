@@ -488,7 +488,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             int transactionTimeoutMs = config.getInt(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG);
             long retryBackoffMs = config.getLong(ProducerConfig.RETRY_BACKOFF_MS_CONFIG);
             transactionManager = new TransactionManager(logContext, transactionalId, transactionTimeoutMs, retryBackoffMs);
-            if (transactionManager.isTransactional())
+            if (transactionManager.isTransactional()) //note: 设置 txn id 的情况，即事务性
                 log.info("Instantiated a transactional producer.");
             else
                 log.info("Instantiated an idempotent producer.");
@@ -579,6 +579,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * @throws TimeoutException if the time taken for initialize the transaction has surpassed <code>max.block.ms</code>.
      * @throws InterruptException if the thread is interrupted while blocked
      */
+    //note: 这个方法会做两件事（如果设置了 txn id，这个方法应该在所有操作之前进行调用，只需要调用一次）：
+    //note: 1. 确保之前 Producer 对象（同一个 Txn id）的事务已经完成，如果之前的失败，那么就值行 abort，否则会等待上一个事务的完成；
+    //note: 2. 获取 producer 的 PID 和 epoch。
     public void initTransactions() {
         throwIfNoTransactionManager();
         if (initTransactionsResult == null) {
@@ -587,7 +590,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         }
 
         try {
-            if (initTransactionsResult.await(maxBlockTimeMs, TimeUnit.MILLISECONDS)) {
+            if (initTransactionsResult.await(maxBlockTimeMs, TimeUnit.MILLISECONDS)) { //note: 同步处理，等待直到结果返回
                 initTransactionsResult = null;
             } else {
                 throw new TimeoutException("Timeout expired while initializing transactional state in " + maxBlockTimeMs + "ms.");
@@ -610,6 +613,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      *         transactional.id is not authorized. See the exception for more details
      * @throws KafkaException if the producer has encountered a previous fatal error or for any other unexpected error
      */
+    //note: 应该在一个事务操作之前进行调用
     public void beginTransaction() throws ProducerFencedException {
         throwIfNoTransactionManager();
         transactionManager.beginTransaction();
@@ -639,6 +643,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * @throws KafkaException if the producer has encountered a previous fatal or abortable error, or for any
      *         other unexpected error
      */
+    //note: 当你需要 batch 的消费-处理-写入消息，这个方法需要被使用
+    //note: 发送指定的 offset 给 group coordinator，用来标记这些 offset 是作为当前事务的一部分，只有这次事务成功时
+    //note: 这些 offset 才会被认为 commit 了
     public void sendOffsetsToTransaction(Map<TopicPartition, OffsetAndMetadata> offsets,
                                          String consumerGroupId) throws ProducerFencedException {
         throwIfNoTransactionManager();

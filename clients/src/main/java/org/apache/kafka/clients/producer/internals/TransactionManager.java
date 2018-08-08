@@ -138,6 +138,7 @@ public class TransactionManager {
         ABORTABLE_ERROR,
         FATAL_ERROR;
 
+        //note: TNX Manager 事务状态转换的验证
         private boolean isTransitionValid(State source, State target) {
             switch (target) {
                 case INITIALIZING:
@@ -209,9 +210,10 @@ public class TransactionManager {
         this(new LogContext(), null, 0, 100);
     }
 
+    //note: 事务性初始化（所有操作之前调用，只需要调用一次）
     public synchronized TransactionalRequestResult initializeTransactions() {
-        ensureTransactional();
-        transitionTo(State.INITIALIZING);
+        ensureTransactional(); //note:  确保设置了 事务性
+        transitionTo(State.INITIALIZING); //note:  当前事务性的状态变为 INITIALIZING
         setProducerIdAndEpoch(ProducerIdAndEpoch.NONE);
         this.nextSequence.clear();
         InitProducerIdRequest.Builder builder = new InitProducerIdRequest.Builder(transactionalId, transactionTimeoutMs);
@@ -220,6 +222,7 @@ public class TransactionManager {
         return handler.result;
     }
 
+    //note: 在一个事务开始之前进行调用，这里实际上只是转换了状态（只在 producer 本地记录了状态的开始）
     public synchronized void beginTransaction() {
         ensureTransactional();
         maybeFailWithError();
@@ -254,6 +257,7 @@ public class TransactionManager {
         return handler.result;
     }
 
+    //note: 发送 AddOffsetsToTxRequest
     public synchronized TransactionalRequestResult sendOffsetsToTransaction(Map<TopicPartition, OffsetAndMetadata> offsets,
                                                                             String consumerGroupId) {
         ensureTransactional();
@@ -766,6 +770,7 @@ public class TransactionManager {
         transitionTo(target, null);
     }
 
+    //note: 事务状态转移，必须是有效的
     private synchronized void transitionTo(State target, RuntimeException error) {
         if (!currentState.isTransitionValid(currentState, target)) {
             String idString = transactionalId == null ?  "" : "TransactionalId " + transactionalId + ": ";
@@ -935,6 +940,7 @@ public class TransactionManager {
             return coordinatorType() != null;
         }
 
+        //note: Coordinator 的类型为 TXN
         FindCoordinatorRequest.CoordinatorType coordinatorType() {
             return FindCoordinatorRequest.CoordinatorType.TRANSACTION;
         }
@@ -962,6 +968,7 @@ public class TransactionManager {
         abstract Priority priority();
     }
 
+    //note: 处理 InitPidRequest 请求的返回结果
     private class InitProducerIdHandler extends TxnRequestHandler {
         private final InitProducerIdRequest.Builder builder;
 
@@ -984,10 +991,10 @@ public class TransactionManager {
             InitProducerIdResponse initProducerIdResponse = (InitProducerIdResponse) response;
             Errors error = initProducerIdResponse.error();
 
-            if (error == Errors.NONE) {
+            if (error == Errors.NONE) { //note: 获取 PID 和 epoch 信息，更新到 Producer 对应的缓存中
                 ProducerIdAndEpoch producerIdAndEpoch = new ProducerIdAndEpoch(initProducerIdResponse.producerId(), initProducerIdResponse.epoch());
                 setProducerIdAndEpoch(producerIdAndEpoch);
-                transitionTo(State.READY);
+                transitionTo(State.READY); //note:  状态转为 READY
                 lastError = null;
                 result.done();
             } else if (error == Errors.NOT_COORDINATOR || error == Errors.COORDINATOR_NOT_AVAILABLE) {
@@ -1139,7 +1146,7 @@ public class TransactionManager {
             FindCoordinatorResponse findCoordinatorResponse = (FindCoordinatorResponse) response;
             Errors error = findCoordinatorResponse.error();
 
-            if (error == Errors.NONE) {
+            if (error == Errors.NONE) { //note: 即处理寻找 GroupCoordinator 的请求也处理寻找 Txn Coordinator 的请求
                 Node node = findCoordinatorResponse.node();
                 switch (builder.coordinatorType()) {
                     case GROUP:
@@ -1239,6 +1246,7 @@ public class TransactionManager {
                 log.debug("Successfully added partition for consumer group {} to transaction", builder.consumerGroupId());
 
                 // note the result is not completed until the TxnOffsetCommit returns
+                //note: AddOffsetsToTnxRequest 之后，还会再发送 TxnOffsetCommitRequest
                 pendingRequests.add(txnOffsetCommitHandler(result, offsets, builder.consumerGroupId()));
                 transactionStarted = true;
             } else if (error == Errors.COORDINATOR_NOT_AVAILABLE || error == Errors.NOT_COORDINATOR) {

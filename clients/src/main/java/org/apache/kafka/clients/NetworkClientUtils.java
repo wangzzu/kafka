@@ -87,6 +87,7 @@ public final class NetworkClientUtils {
      * This method is useful for implementing blocking behaviour on top of the non-blocking `NetworkClient`, use it with
      * care.
      */
+    //note: 调用 NetWorkerClient 发送请求，直到结果返回或者超时
     public static ClientResponse sendAndReceive(KafkaClient client, ClientRequest request, Time time) throws IOException {
         client.send(request, time.milliseconds());
         while (true) {

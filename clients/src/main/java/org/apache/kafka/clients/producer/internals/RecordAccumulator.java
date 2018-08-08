@@ -727,6 +727,7 @@ public final class RecordAccumulator {
     /**
      * Abort any batches which have not been drained
      */
+    //note: 把还没有发送的数据丢弃掉
     void abortUndrainedBatches(RuntimeException reason) {
         for (ProducerBatch batch : incomplete.copyAll()) {
             Deque<ProducerBatch> dq = getDeque(batch.topicPartition);
