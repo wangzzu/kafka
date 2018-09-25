@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -6,7 +6,7 @@
  * (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,21 +27,14 @@ import java.util.TreeMap;
 public class MemoryNavigableLRUCache<K, V> extends MemoryLRUCache<K, V> {
 
 
-    public MemoryNavigableLRUCache(String name, final int maxCacheSize, Serde<K> keySerde, Serde<V> valueSerde) {
+    public MemoryNavigableLRUCache(final String name, final int maxCacheSize, final Serde<K> keySerde, final Serde<V> valueSerde) {
         super(name, maxCacheSize, keySerde, valueSerde);
     }
 
     @Override
-    public MemoryNavigableLRUCache<K, V> whenEldestRemoved(EldestEntryRemovalListener<K, V> listener) {
-        this.listener = listener;
-
-        return this;
-    }
-
-    @Override
-    public KeyValueIterator<K, V> range(K from, K to) {
+    public KeyValueIterator<K, V> range(final K from, final K to) {
         final TreeMap<K, V> treeMap = toTreeMap();
-        return new MemoryNavigableLRUCache.CacheIterator<>(treeMap.navigableKeySet().subSet(from, true, to, true).iterator(), treeMap);
+        return new DelegatingPeekingKeyValueIterator<>(name(), new MemoryNavigableLRUCache.CacheIterator<>(treeMap.navigableKeySet().subSet(from, true, to, true).iterator(), treeMap));
     }
 
     @Override
@@ -60,7 +53,7 @@ public class MemoryNavigableLRUCache<K, V> extends MemoryLRUCache<K, V> {
         private final Map<K, V> entries;
         private K lastKey;
 
-        public CacheIterator(Iterator<K> keys, Map<K, V> entries) {
+        public CacheIterator(final Iterator<K> keys, final Map<K, V> entries) {
             this.keys = keys;
             this.entries = entries;
         }
@@ -84,6 +77,11 @@ public class MemoryNavigableLRUCache<K, V> extends MemoryLRUCache<K, V> {
         @Override
         public void close() {
             // do nothing
+        }
+
+        @Override
+        public K peekNextKey() {
+            throw new UnsupportedOperationException("peekNextKey not supported");
         }
     }
 }

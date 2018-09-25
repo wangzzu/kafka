@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.clients.producer.internals.DefaultPartitioner;
@@ -23,6 +22,7 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.streams.kstream.TimeWindowedSerializer;
 import org.apache.kafka.streams.kstream.Windowed;
 import org.junit.Test;
 
@@ -49,36 +49,35 @@ public class WindowedStreamPartitionerTest {
             new PartitionInfo(topicName, 5, Node.noNode(), new Node[0], new Node[0])
     );
 
-    private Cluster cluster = new Cluster(Collections.singletonList(Node.noNode()), infos, Collections.<String>emptySet());
+    private Cluster cluster = new Cluster("cluster", Collections.singletonList(Node.noNode()), infos,
+            Collections.<String>emptySet(), Collections.<String>emptySet());
 
     @Test
     public void testCopartitioning() {
-
-        Random rand = new Random();
-
-        DefaultPartitioner defaultPartitioner = new DefaultPartitioner();
-
-        WindowedSerializer<Integer> windowedSerializer = new WindowedSerializer<>(intSerializer);
-        WindowedStreamPartitioner<Integer, String> streamPartitioner = new WindowedStreamPartitioner<>(windowedSerializer);
+        final Random rand = new Random();
+        final DefaultPartitioner defaultPartitioner = new DefaultPartitioner();
+        final WindowedSerializer<Integer> timeWindowedSerializer = new TimeWindowedSerializer<>(intSerializer);
+        final WindowedStreamPartitioner<Integer, String> streamPartitioner = new WindowedStreamPartitioner<>(timeWindowedSerializer);
 
         for (int k = 0; k < 10; k++) {
-            Integer key = rand.nextInt();
-            byte[] keyBytes = intSerializer.serialize(topicName, key);
+            final Integer key = rand.nextInt();
+            final byte[] keyBytes = intSerializer.serialize(topicName, key);
 
-            String value = key.toString();
-            byte[] valueBytes = stringSerializer.serialize(topicName, value);
+            final String value = key.toString();
+            final byte[] valueBytes = stringSerializer.serialize(topicName, value);
 
-            Integer expected = defaultPartitioner.partition("topic", key, keyBytes, value, valueBytes, cluster);
+            final Integer expected = defaultPartitioner.partition("topic", key, keyBytes, value, valueBytes, cluster);
 
-            for (int w = 0; w < 10; w++) {
-                TimeWindow window = new TimeWindow(10 * w, 20 * w);
+            for (int w = 1; w < 10; w++) {
+                final TimeWindow window = new TimeWindow(10 * w, 20 * w);
 
-                Windowed<Integer> windowedKey = new Windowed<>(key, window);
-                Integer actual = streamPartitioner.partition(windowedKey, value, infos.size());
+                final Windowed<Integer> windowedKey = new Windowed<>(key, window);
+                final Integer actual = streamPartitioner.partition(topicName, windowedKey, value, infos.size());
 
                 assertEquals(expected, actual);
             }
         }
-    }
 
+        defaultPartitioner.close();
+    }
 }

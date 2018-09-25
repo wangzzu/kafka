@@ -22,22 +22,20 @@ import java.util.ArrayList
 import java.util.concurrent.ExecutionException
 
 import kafka.admin.AclCommand
-import kafka.common.TopicAndPartition
 import kafka.security.auth._
 import kafka.server._
 import kafka.utils._
-
-import org.apache.kafka.clients.consumer.{Consumer, ConsumerRecord, ConsumerConfig}
-import org.apache.kafka.clients.producer.{ProducerRecord, ProducerConfig}
+import org.apache.kafka.clients.consumer.{Consumer, ConsumerConfig, ConsumerRecord}
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
-import org.apache.kafka.common.{TopicPartition}
-import org.apache.kafka.common.protocol.SecurityProtocol
-import org.apache.kafka.common.errors.{GroupAuthorizationException,TopicAuthorizationException}
+import org.apache.kafka.common.{KafkaException, TopicPartition}
+import org.apache.kafka.common.errors.{GroupAuthorizationException, TimeoutException, TopicAuthorizationException}
+import org.apache.kafka.common.resource.PatternType
+import org.apache.kafka.common.resource.PatternType.{LITERAL, PREFIXED}
 import org.junit.Assert._
-import org.junit.{Test, After, Before}
+import org.junit.{After, Before, Test}
 
 import scala.collection.JavaConverters._
-
 
 /**
   * The test cases here verify that a producer authorized to publish to a topic
@@ -57,75 +55,112 @@ import scala.collection.JavaConverters._
   * SaslTestHarness here directly because it extends ZooKeeperTestHarness, and we
   * would end up with ZooKeeperTestHarness twice.
   */
-trait EndToEndAuthorizationTest extends IntegrationTestHarness with SaslSetup {
-  override val producerCount = 1
-  override val consumerCount = 2
+abstract class EndToEndAuthorizationTest extends IntegrationTestHarness with SaslSetup {
   override val serverCount = 3
 
-  override def setAclsBeforeServersStart() {
-    AclCommand.main(clusterAclArgs)
+  override def configureSecurityBeforeServersStart() {
+    AclCommand.main(clusterActionArgs)
+    AclCommand.main(topicBrokerReadAclArgs)
   }
 
   val numRecords = 1
-  val group = "group"
-  val topic = "e2etopic"
-  val topicWildcard = "*"
+  val groupPrefix = "gr"
+  val group = s"${groupPrefix}oup"
+  val topicPrefix = "e2e"
+  val topic = s"${topicPrefix}topic"
+  val wildcard = "*"
   val part = 0
   val tp = new TopicPartition(topic, part)
-  val topicAndPartition = new TopicAndPartition(topic, part)
   val clientPrincipal: String
   val kafkaPrincipal: String
 
   override protected lazy val trustStoreFile = Some(File.createTempFile("truststore", ".jks"))
-  protected def kafkaClientSaslMechanism = "GSSAPI"
-  protected def kafkaServerSaslMechanisms = List("GSSAPI")
-  override protected val saslProperties = Some(kafkaSaslProperties(kafkaClientSaslMechanism, Some(kafkaServerSaslMechanisms)))
 
-  val topicResource = new Resource(Topic, topic)
-  val groupResource = new Resource(Group, group)
+  val topicResource = Resource(Topic, topic, LITERAL)
+  val groupResource = Resource(Group, group, LITERAL)
   val clusterResource = Resource.ClusterResource
+  val prefixedTopicResource = Resource(Topic, topicPrefix, PREFIXED)
+  val prefixedGroupResource = Resource(Group, groupPrefix, PREFIXED)
+  val wildcardTopicResource = Resource(Topic, wildcard, LITERAL)
+  val wildcardGroupResource = Resource(Group, wildcard, LITERAL)
 
-  // Arguments to AclCommand to set ACLs. There are three definitions here:
-  // 1- Provides read and write access to topic
-  // 2- Provides only write access to topic
-  // 3- Provides read access to consumer group
-  def clusterAclArgs: Array[String] = Array("--authorizer-properties",
-                                            s"zookeeper.connect=$zkConnect",
-                                            s"--add",
-                                            s"--cluster",
-                                            s"--operation=ClusterAction",
-                                            s"--allow-principal=$kafkaPrincipalType:$kafkaPrincipal")
+  // Arguments to AclCommand to set ACLs.
+  def clusterActionArgs: Array[String] = Array("--authorizer-properties",
+                                          s"zookeeper.connect=$zkConnect",
+                                          s"--add",
+                                          s"--cluster",
+                                          s"--operation=ClusterAction",
+                                          s"--allow-principal=$kafkaPrincipalType:$kafkaPrincipal")
   def topicBrokerReadAclArgs: Array[String] = Array("--authorizer-properties",
-                                                    s"zookeeper.connect=$zkConnect",
-                                                    s"--add",
-                                                    s"--topic=$topicWildcard",
-                                                    s"--operation=Read",
-                                                    s"--allow-principal=$kafkaPrincipalType:$kafkaPrincipal")
-  def produceAclArgs: Array[String] = Array("--authorizer-properties",
+                                          s"zookeeper.connect=$zkConnect",
+                                          s"--add",
+                                          s"--topic=$wildcard",
+                                          s"--operation=Read",
+                                          s"--allow-principal=$kafkaPrincipalType:$kafkaPrincipal")
+  def produceAclArgs(topic: String): Array[String] = Array("--authorizer-properties",
                                           s"zookeeper.connect=$zkConnect",
                                           s"--add",
                                           s"--topic=$topic",
                                           s"--producer",
                                           s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
-  def consumeAclArgs: Array[String] = Array("--authorizer-properties",
-                                               s"zookeeper.connect=$zkConnect",
-                                               s"--add",
-                                               s"--topic=$topic",
-                                               s"--group=$group",
-                                               s"--consumer",
-                                               s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
+  def describeAclArgs: Array[String] = Array("--authorizer-properties",
+                                          s"zookeeper.connect=$zkConnect",
+                                          s"--add",
+                                          s"--topic=$topic",
+                                          s"--operation=Describe",
+                                          s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
+  def deleteDescribeAclArgs: Array[String] = Array("--authorizer-properties",
+                                          s"zookeeper.connect=$zkConnect",
+                                          s"--remove",
+                                          s"--force",
+                                          s"--topic=$topic",
+                                          s"--operation=Describe",
+                                          s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
+  def deleteWriteAclArgs: Array[String] = Array("--authorizer-properties",
+                                          s"zookeeper.connect=$zkConnect",
+                                          s"--remove",
+                                          s"--force",
+                                          s"--topic=$topic",
+                                          s"--operation=Write",
+                                          s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
+  def consumeAclArgs(topic: String): Array[String] = Array("--authorizer-properties",
+                                          s"zookeeper.connect=$zkConnect",
+                                          s"--add",
+                                          s"--topic=$topic",
+                                          s"--group=$group",
+                                          s"--consumer",
+                                          s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
   def groupAclArgs: Array[String] = Array("--authorizer-properties",
                                           s"zookeeper.connect=$zkConnect",
                                           s"--add",
                                           s"--group=$group",
                                           s"--operation=Read",
                                           s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
+  def produceConsumeWildcardAclArgs: Array[String] = Array("--authorizer-properties",
+                                          s"zookeeper.connect=$zkConnect",
+                                          s"--add",
+                                          s"--topic=$wildcard",
+                                          s"--group=$wildcard",
+                                          s"--consumer",
+                                          s"--producer",
+                                          s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
+  def produceConsumePrefixedAclsArgs: Array[String] = Array("--authorizer-properties",
+                                          s"zookeeper.connect=$zkConnect",
+                                          s"--add",
+                                          s"--topic=$topicPrefix",
+                                          s"--group=$groupPrefix",
+                                          s"--resource-pattern-type=prefixed",
+                                          s"--consumer",
+                                          s"--producer",
+                                          s"--allow-principal=$kafkaPrincipalType:$clientPrincipal")
+
   def ClusterActionAcl = Set(new Acl(new KafkaPrincipal(kafkaPrincipalType, kafkaPrincipal), Allow, Acl.WildCardHost, ClusterAction))
   def TopicBrokerReadAcl = Set(new Acl(new KafkaPrincipal(kafkaPrincipalType, kafkaPrincipal), Allow, Acl.WildCardHost, Read))
   def GroupReadAcl = Set(new Acl(new KafkaPrincipal(kafkaPrincipalType, clientPrincipal), Allow, Acl.WildCardHost, Read))
   def TopicReadAcl = Set(new Acl(new KafkaPrincipal(kafkaPrincipalType, clientPrincipal), Allow, Acl.WildCardHost, Read))
   def TopicWriteAcl = Set(new Acl(new KafkaPrincipal(kafkaPrincipalType, clientPrincipal), Allow, Acl.WildCardHost, Write))
   def TopicDescribeAcl = Set(new Acl(new KafkaPrincipal(kafkaPrincipalType, clientPrincipal), Allow, Acl.WildCardHost, Describe))
+  def TopicCreateAcl = Set(new Acl(new KafkaPrincipal(kafkaPrincipalType, clientPrincipal), Allow, Acl.WildCardHost, Create))
   // The next two configuration parameters enable ZooKeeper secure ACLs
   // and sets the Kafka authorizer, both necessary to enable security.
   this.serverConfig.setProperty(KafkaConfig.ZkEnableSecureAclsProp, "true")
@@ -134,34 +169,29 @@ trait EndToEndAuthorizationTest extends IntegrationTestHarness with SaslSetup {
   this.serverConfig.setProperty(KafkaConfig.OffsetsTopicPartitionsProp, "1")
   this.serverConfig.setProperty(KafkaConfig.OffsetsTopicReplicationFactorProp, "3")
   this.serverConfig.setProperty(KafkaConfig.MinInSyncReplicasProp, "3")
+  this.serverConfig.setProperty(KafkaConfig.DefaultReplicationFactorProp, "3")
   this.consumerConfig.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "group")
 
   /**
     * Starts MiniKDC and only then sets up the parent trait.
     */
   @Before
-  override def setUp {
-    securityProtocol match {
-      case SecurityProtocol.SSL =>
-        startSasl(ZkSasl, null, null)
-      case _ =>
-        startSasl(Both, List(kafkaClientSaslMechanism), kafkaServerSaslMechanisms)
+  override def setUp() {
+    super.setUp()
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(ClusterActionAcl, s.apis.authorizer.get, Resource.ClusterResource)
+      TestUtils.waitAndVerifyAcls(TopicBrokerReadAcl, s.apis.authorizer.get, Resource(Topic, "*", LITERAL))
     }
-    super.setUp
-    AclCommand.main(topicBrokerReadAclArgs)
-    servers.foreach( s =>
-      TestUtils.waitAndVerifyAcls(TopicBrokerReadAcl, s.apis.authorizer.get, new Resource(Topic, "*"))
-    )
     // create the test topic with all the brokers as replicas
-    TestUtils.createTopic(zkUtils, topic, 1, 3, this.servers)
+    createTopic(topic, 1, 3)
   }
 
   /**
     * Closes MiniKDC last when tearing down.
     */
   @After
-  override def tearDown {
-    super.tearDown
+  override def tearDown() {
+    super.tearDown()
     closeSasl()
   }
 
@@ -169,106 +199,216 @@ trait EndToEndAuthorizationTest extends IntegrationTestHarness with SaslSetup {
     * Tests the ability of producing and consuming with the appropriate ACLs set.
     */
   @Test
-  def testProduceConsumeViaAssign {
-    setAclsAndProduce()
-    consumers.head.assign(List(tp).asJava)
-    consumeRecords(this.consumers.head, numRecords)
-    debug("Finished consuming")
+  def testProduceConsumeViaAssign(): Unit = {
+    setAclsAndProduce(tp)
+    val consumer = createConsumer()
+    consumer.assign(List(tp).asJava)
+    consumeRecords(consumer, numRecords)
   }
 
   @Test
-  def testProduceConsumeViaSubscribe {
-    setAclsAndProduce()
-    consumers.head.subscribe(List(topic).asJava)
-    consumeRecords(this.consumers.head, numRecords)
-    debug("Finished consuming")
+  def testProduceConsumeViaSubscribe(): Unit = {
+    setAclsAndProduce(tp)
+    val consumer = createConsumer()
+    consumer.subscribe(List(topic).asJava)
+    consumeRecords(consumer, numRecords)
   }
 
-  private def setAclsAndProduce() {
-    AclCommand.main(produceAclArgs)
-    AclCommand.main(consumeAclArgs)
-    servers.foreach(s => {
-      TestUtils.waitAndVerifyAcls(TopicReadAcl ++ TopicWriteAcl ++ TopicDescribeAcl, s.apis.authorizer.get, topicResource)
+  @Test
+  def testProduceConsumeWithWildcardAcls(): Unit = {
+    setWildcardResourceAcls()
+    val producer = createProducer()
+    sendRecords(producer, numRecords, tp)
+    val consumer = createConsumer()
+    consumer.subscribe(List(topic).asJava)
+    consumeRecords(consumer, numRecords)
+  }
+
+  @Test
+  def testProduceConsumeWithPrefixedAcls(): Unit = {
+    setPrefixedResourceAcls()
+    val producer = createProducer()
+    sendRecords(producer, numRecords, tp)
+    val consumer = createConsumer()
+    consumer.subscribe(List(topic).asJava)
+    consumeRecords(consumer, numRecords)
+  }
+
+  @Test
+  def testProduceConsumeTopicAutoCreateTopicCreateAcl(): Unit = {
+    // topic2 is not created on setup()
+    val tp2 = new TopicPartition("topic2", 0)
+    setAclsAndProduce(tp2)
+    val consumer = createConsumer()
+    consumer.assign(List(tp2).asJava)
+    consumeRecords(consumer, numRecords, topic = tp2.topic)
+  }
+
+  private def setWildcardResourceAcls() {
+    AclCommand.main(produceConsumeWildcardAclArgs)
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(TopicReadAcl ++ TopicWriteAcl ++ TopicDescribeAcl ++ TopicCreateAcl ++ TopicBrokerReadAcl, s.apis.authorizer.get, wildcardTopicResource)
+      TestUtils.waitAndVerifyAcls(GroupReadAcl, s.apis.authorizer.get, wildcardGroupResource)
+    }
+  }
+
+  private def setPrefixedResourceAcls() {
+    AclCommand.main(produceConsumePrefixedAclsArgs)
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(TopicReadAcl ++ TopicWriteAcl ++ TopicDescribeAcl ++ TopicCreateAcl, s.apis.authorizer.get, prefixedTopicResource)
+      TestUtils.waitAndVerifyAcls(GroupReadAcl, s.apis.authorizer.get, prefixedGroupResource)
+    }
+  }
+
+  protected def setAclsAndProduce(tp: TopicPartition) {
+    AclCommand.main(produceAclArgs(tp.topic))
+    AclCommand.main(consumeAclArgs(tp.topic))
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(TopicReadAcl ++ TopicWriteAcl ++ TopicDescribeAcl ++ TopicCreateAcl, s.apis.authorizer.get,
+        new Resource(Topic, tp.topic, PatternType.LITERAL))
       TestUtils.waitAndVerifyAcls(GroupReadAcl, s.apis.authorizer.get, groupResource)
-    })
-    //Produce records
-    debug("Starting to send records")
-    sendRecords(numRecords, tp)
-    //Consume records
-    debug("Finished sending and starting to consume records")
+    }
+    val producer = createProducer()
+    sendRecords(producer, numRecords, tp)
   }
 
   /**
     * Tests that a producer fails to publish messages when the appropriate ACL
     * isn't set.
     */
+  @Test(expected = classOf[TopicAuthorizationException])
+  def testNoProduceWithoutDescribeAcl(): Unit = {
+    val producer = createProducer()
+    sendRecords(producer, numRecords, tp)
+  }
+
   @Test
-  def testNoProduceAcl {
-    //Produce records
-    debug("Starting to send records")
+  def testNoProduceWithDescribeAcl(): Unit = {
+    AclCommand.main(describeAclArgs)
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(TopicDescribeAcl, s.apis.authorizer.get, topicResource)
+    }
     try{
-      sendRecords(numRecords, tp)
-      fail("Topic authorization exception expected")
+      val producer = createProducer()
+      sendRecords(producer, numRecords, tp)
+      fail("exception expected")
     } catch {
-      case e: TopicAuthorizationException => //expected
-    }
-  }
-
-  /**
-    * Tests that a consumer fails to consume messages without the appropriate
-    * ACL set.
-    */
-  @Test
-  def testNoConsumeAcl {
-    AclCommand.main(produceAclArgs)
-    AclCommand.main(groupAclArgs)
-    servers.foreach(s => {
-      TestUtils.waitAndVerifyAcls(TopicWriteAcl ++ TopicDescribeAcl, s.apis.authorizer.get, topicResource)
-      TestUtils.waitAndVerifyAcls(GroupReadAcl, s.apis.authorizer.get, groupResource)
-    })
-    //Produce records
-    debug("Starting to send records")
-    sendRecords(numRecords, tp)
-    //Consume records
-    debug("Finished sending and starting to consume records")
-    consumers.head.assign(List(tp).asJava)
-    try {
-      consumeRecords(this.consumers.head)
-      fail("Topic authorization exception expected")
-    } catch {
-      case e: TopicAuthorizationException => //expected
-    }
-  }
-
-  /**
-    * Tests that a consumer fails to consume messages without the appropriate
-    * ACL set.
-    */
-  @Test
-  def testNoGroupAcl {
-    AclCommand.main(produceAclArgs)
-    servers.foreach(s =>
-      TestUtils.waitAndVerifyAcls(TopicWriteAcl ++ TopicDescribeAcl, s.apis.authorizer.get, topicResource)
-    )
-    //Produce records
-    debug("Starting to send records")
-    sendRecords(numRecords, tp)
-    //Consume records
-    debug("Finished sending and starting to consume records")
-    consumers.head.assign(List(tp).asJava)
-    try {
-      consumeRecords(this.consumers.head)
-      fail("Topic authorization exception expected")
-    } catch {
-      case e: GroupAuthorizationException => //expected
+      case e: TopicAuthorizationException =>
+        assertEquals(Set(topic).asJava, e.unauthorizedTopics())
     }
   }
   
-  private def sendRecords(numRecords: Int, tp: TopicPartition) {
+   /**
+    * Tests that a consumer fails to consume messages without the appropriate
+    * ACL set.
+    */
+  @Test(expected = classOf[KafkaException])
+  def testNoConsumeWithoutDescribeAclViaAssign(): Unit = {
+    noConsumeWithoutDescribeAclSetup()
+    val consumer = createConsumer()
+    consumer.assign(List(tp).asJava)
+    // the exception is expected when the consumer attempts to lookup offsets
+    consumeRecords(consumer)
+  }
+  
+  @Test(expected = classOf[TopicAuthorizationException])
+  def testNoConsumeWithoutDescribeAclViaSubscribe(): Unit = {
+    noConsumeWithoutDescribeAclSetup()
+    val consumer = createConsumer()
+    consumer.subscribe(List(topic).asJava)
+    // this should timeout since the consumer will not be able to fetch any metadata for the topic
+    consumeRecords(consumer, timeout = 3000)
+  }
+  
+  private def noConsumeWithoutDescribeAclSetup(): Unit = {
+    AclCommand.main(produceAclArgs(tp.topic))
+    AclCommand.main(groupAclArgs)
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(TopicWriteAcl ++ TopicDescribeAcl ++ TopicCreateAcl, s.apis.authorizer.get, topicResource)
+      TestUtils.waitAndVerifyAcls(GroupReadAcl, s.apis.authorizer.get, groupResource)
+    }
+
+    val producer = createProducer()
+    sendRecords(producer, numRecords, tp)
+
+    AclCommand.main(deleteDescribeAclArgs)
+    AclCommand.main(deleteWriteAclArgs)
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(GroupReadAcl, s.apis.authorizer.get, groupResource)
+    }
+  }
+  
+  @Test
+  def testNoConsumeWithDescribeAclViaAssign(): Unit = {
+    noConsumeWithDescribeAclSetup()
+    val consumer = createConsumer()
+    consumer.assign(List(tp).asJava)
+
+    try {
+      consumeRecords(consumer)
+      fail("Topic authorization exception expected")
+    } catch {
+      case e: TopicAuthorizationException =>
+        assertEquals(Set(topic).asJava, e.unauthorizedTopics())
+    }
+  }
+  
+  @Test
+  def testNoConsumeWithDescribeAclViaSubscribe(): Unit = {
+    noConsumeWithDescribeAclSetup()
+    val consumer = createConsumer()
+    consumer.subscribe(List(topic).asJava)
+
+    try {
+      consumeRecords(consumer)
+      fail("Topic authorization exception expected")
+    } catch {
+      case e: TopicAuthorizationException =>
+        assertEquals(Set(topic).asJava, e.unauthorizedTopics())
+    }
+  }
+  
+  private def noConsumeWithDescribeAclSetup(): Unit = {
+    AclCommand.main(produceAclArgs(tp.topic))
+    AclCommand.main(groupAclArgs)
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(TopicWriteAcl ++ TopicDescribeAcl ++ TopicCreateAcl, s.apis.authorizer.get, topicResource)
+      TestUtils.waitAndVerifyAcls(GroupReadAcl, s.apis.authorizer.get, groupResource)
+    }
+    val producer = createProducer()
+    sendRecords(producer, numRecords, tp)
+  }
+
+  /**
+    * Tests that a consumer fails to consume messages without the appropriate
+    * ACL set.
+    */
+  @Test
+  def testNoGroupAcl(): Unit = {
+    AclCommand.main(produceAclArgs(tp.topic))
+    servers.foreach { s =>
+      TestUtils.waitAndVerifyAcls(TopicWriteAcl ++ TopicDescribeAcl ++ TopicCreateAcl, s.apis.authorizer.get, topicResource)
+    }
+    val producer = createProducer()
+    sendRecords(producer, numRecords, tp)
+
+    val consumer = createConsumer()
+    consumer.assign(List(tp).asJava)
+    try {
+      consumeRecords(consumer)
+      fail("Topic authorization exception expected")
+    } catch {
+      case e: GroupAuthorizationException =>
+        assertEquals(group, e.groupId())
+    }
+  }
+
+  protected final def sendRecords(producer: KafkaProducer[Array[Byte], Array[Byte]],
+                                  numRecords: Int, tp: TopicPartition) {
     val futures = (0 until numRecords).map { i =>
       val record = new ProducerRecord(tp.topic(), tp.partition(), s"$i".getBytes, s"$i".getBytes)
       debug(s"Sending this record: $record")
-      this.producers.head.send(record)
+      producer.send(record)
     }
     try {
       futures.foreach(_.get)
@@ -277,28 +417,29 @@ trait EndToEndAuthorizationTest extends IntegrationTestHarness with SaslSetup {
     }
   }
 
-  private def consumeRecords(consumer: Consumer[Array[Byte], Array[Byte]],
-                             numRecords: Int = 1,
-                             startingOffset: Int = 0,
-                             topic: String = topic,
-                             part: Int = part) {
+  protected final def consumeRecords(consumer: Consumer[Array[Byte], Array[Byte]],
+                                     numRecords: Int = 1,
+                                     startingOffset: Int = 0,
+                                     topic: String = topic,
+                                     part: Int = part,
+                                     timeout: Long = 10000) {
     val records = new ArrayList[ConsumerRecord[Array[Byte], Array[Byte]]]()
-    val maxIters = numRecords * 50
-    var iters = 0
-    while (records.size < numRecords) {
-      for (record <- consumer.poll(50).asScala) {
+
+    val deadlineMs = System.currentTimeMillis() + timeout
+    while (records.size < numRecords && System.currentTimeMillis() < deadlineMs) {
+      for (record <- consumer.poll(50).asScala)
         records.add(record)
-      }
-      if (iters > maxIters)
-        throw new IllegalStateException("Failed to consume the expected records after " + iters + " iterations.")
-      iters += 1
     }
+    if (records.size < numRecords)
+      throw new TimeoutException
+
     for (i <- 0 until numRecords) {
       val record = records.get(i)
       val offset = startingOffset + i
       assertEquals(topic, record.topic())
       assertEquals(part, record.partition())
       assertEquals(offset.toLong, record.offset())
-    } 
+    }
   }
 }
+

@@ -16,8 +16,9 @@
 
 from ducktape.utils.util import wait_until
 from ducktape.tests.test import Test
-from kafkatest.services.verifiable_producer import VerifiableProducer
+from ducktape.mark.resource import cluster
 
+from kafkatest.services.verifiable_producer import VerifiableProducer
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.services.kafka import KafkaService
 from kafkatest.services.console_consumer import ConsoleConsumer
@@ -27,6 +28,7 @@ TOPIC = "topic-get-offset-shell"
 MAX_MESSAGES = 100
 NUM_PARTITIONS = 1
 REPLICATION_FACTOR = 1
+
 
 class GetOffsetShellTest(Test):
     """
@@ -42,7 +44,6 @@ class GetOffsetShellTest(Test):
         }
 
         self.zk = ZookeeperService(test_context, self.num_zk)
-
 
 
     def setUp(self):
@@ -63,12 +64,12 @@ class GetOffsetShellTest(Test):
         wait_until(lambda: self.producer.num_acked >= current_acked + MAX_MESSAGES, timeout_sec=10,
                    err_msg="Timeout awaiting messages to be produced and acked")
 
-    def start_consumer(self, security_protocol):
-        enable_new_consumer = security_protocol != SecurityConfig.PLAINTEXT
+    def start_consumer(self):
         self.consumer = ConsoleConsumer(self.test_context, num_nodes=self.num_brokers, kafka=self.kafka, topic=TOPIC,
-                                        consumer_timeout_ms=1000, new_consumer=enable_new_consumer)
+                                        consumer_timeout_ms=1000)
         self.consumer.start()
 
+    @cluster(num_nodes=4)
     def test_get_offset_shell(self, security_protocol='PLAINTEXT'):
         """
         Tests if GetOffsetShell is getting offsets correctly
@@ -80,7 +81,7 @@ class GetOffsetShellTest(Test):
         # Assert that offset fetched without any consumers consuming is 0
         assert self.kafka.get_offset_shell(TOPIC, None, 1000, 1, -1), "%s:%s:%s" % (TOPIC, NUM_PARTITIONS - 1, 0)
 
-        self.start_consumer(security_protocol)
+        self.start_consumer()
 
         node = self.consumer.nodes[0]
 

@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,10 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kafka.streams.kstream.internals;
 
-import org.apache.kafka.streams.errors.TopologyBuilderException;
 import org.apache.kafka.streams.processor.AbstractProcessor;
 import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -28,15 +26,8 @@ class KStreamJoinWindow<K, V> implements ProcessorSupplier<K, V> {
 
     private final String windowName;
 
-    /**
-     * @throws TopologyBuilderException if retention period of the join window is less than expected
-     */
-    KStreamJoinWindow(String windowName, long windowSizeMs, long retentionPeriodMs) {
+    KStreamJoinWindow(final String windowName) {
         this.windowName = windowName;
-
-        if (windowSizeMs > retentionPeriodMs)
-            throw new TopologyBuilderException("The retention period of the join window "
-                    + windowName + " must be no smaller than its window size.");
     }
 
     @Override
@@ -50,19 +41,20 @@ class KStreamJoinWindow<K, V> implements ProcessorSupplier<K, V> {
 
         @SuppressWarnings("unchecked")
         @Override
-        public void init(ProcessorContext context) {
+        public void init(final ProcessorContext context) {
             super.init(context);
 
             window = (WindowStore<K, V>) context.getStateStore(windowName);
         }
 
         @Override
-        public void process(K key, V value) {
+        public void process(final K key, final V value) {
             // if the key is null, we do not need to put the record into window store
             // since it will never be considered for join operations
             if (key != null) {
                 context().forward(key, value);
-                window.put(key, value);
+                // Every record basically starts a new window. We're using a window store mostly for the retention.
+                window.put(key, value, context().timestamp());
             }
         }
     }

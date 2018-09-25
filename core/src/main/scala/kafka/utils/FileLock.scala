@@ -18,6 +18,7 @@
 
 import java.io._
 import java.nio.channels._
+import java.nio.file.StandardOpenOption
 
 /**
  * A file lock a la flock/funlock
@@ -25,8 +26,9 @@ import java.nio.channels._
  * The given path will be created and opened if it doesn't exist.
  */
 class FileLock(val file: File) extends Logging {
-  file.createNewFile() // create the file if it doesn't exist
-  private val channel = new RandomAccessFile(file, "rw").getChannel()
+
+  private val channel = FileChannel.open(file.toPath, StandardOpenOption.CREATE, StandardOpenOption.READ,
+    StandardOpenOption.WRITE)
   private var flock: java.nio.channels.FileLock = null
 
   /**
@@ -52,7 +54,7 @@ class FileLock(val file: File) extends Logging {
         flock = channel.tryLock()
         flock != null
       } catch {
-        case e: OverlappingFileLockException => false
+        case _: OverlappingFileLockException => false
       }
     }
   }

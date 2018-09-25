@@ -17,14 +17,17 @@
 
 package kafka.tools
 
+import java.nio.charset.StandardCharsets
+import java.time.Duration
 import java.util.{Arrays, Properties}
 
+import kafka.utils.Exit
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer._
-import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.utils.Utils
 
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
 import scala.util.Random
 
 
@@ -45,7 +48,7 @@ object EndToEndLatency {
   def main(args: Array[String]) {
     if (args.length != 5 && args.length != 6) {
       System.err.println("USAGE: java " + getClass.getName + " broker_list topic num_messages producer_acks message_size_bytes [optional] properties_file")
-      System.exit(1)
+      Exit.exit(1)
     }
 
     val brokerList = args(0)
@@ -68,9 +71,7 @@ object EndToEndLatency {
     consumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer")
     consumerProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer")
     consumerProps.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "0") //ensure we have no temporal batching
-
     val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](consumerProps)
-    consumer.subscribe(List(topic))
 
     val producerProps = loadProps
     producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
@@ -81,16 +82,21 @@ object EndToEndLatency {
     producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer")
     val producer = new KafkaProducer[Array[Byte], Array[Byte]](producerProps)
 
+    // sends a dummy message to create the topic if it doesn't exist
+    producer.send(new ProducerRecord[Array[Byte], Array[Byte]](topic, Array[Byte]())).get()
+
     def finalise() {
       consumer.commitSync()
       producer.close()
       consumer.close()
     }
 
-    //Ensure we are at latest offset. seekToEnd evaluates lazily, that is to say actually performs the seek only when
-    //a poll() or position() request is issued. Hence we need to poll after we seek to ensure we see our first write.
-    consumer.seekToEnd(List[TopicPartition]())
-    consumer.poll(0)
+
+    val topicPartitions = consumer.partitionsFor(topic).asScala
+      .map(p => new TopicPartition(p.topic(), p.partition())).asJava
+    consumer.assign(topicPartitions)
+    consumer.seekToEnd(topicPartitions)
+    consumer.assignment().asScala.foreach(consumer.position)
 
     var totalTime = 0.0
     val latencies = new Array[Long](numMessages)
@@ -102,7 +108,7 @@ object EndToEndLatency {
 
       //Send message (of random bytes) synchronously then immediately poll for it
       producer.send(new ProducerRecord[Array[Byte], Array[Byte]](topic, message)).get()
-      val recordIter = consumer.poll(timeout).iterator
+      val recordIter = consumer.poll(Duration.ofMillis(timeout)).iterator
 
       val elapsed = System.nanoTime - begin
 
@@ -113,8 +119,8 @@ object EndToEndLatency {
       }
 
       //Check result matches the original record
-      val sent = new String(message)
-      val read = new String(recordIter.next().value())
+      val sent = new String(message, StandardCharsets.UTF_8)
+      val read = new String(recordIter.next().value(), StandardCharsets.UTF_8)
       if (!read.equals(sent)) {
         finalise()
         throw new RuntimeException(s"The message read [$read] did not match the message sent [$sent]")
@@ -122,8 +128,7 @@ object EndToEndLatency {
 
       //Check we only got the one message
       if (recordIter.hasNext) {
-        var count = 1
-        for (elem <- recordIter) count += 1
+        val count = 1 + recordIter.asScala.size
         throw new RuntimeException(s"Only one result was expected during this test. We found [$count]")
       }
 

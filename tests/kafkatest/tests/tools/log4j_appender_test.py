@@ -17,6 +17,7 @@
 from ducktape.utils.util import wait_until
 from ducktape.tests.test import Test
 from ducktape.mark import matrix
+from ducktape.mark.resource import cluster
 
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.services.kafka import KafkaService
@@ -26,6 +27,7 @@ from kafkatest.services.security.security_config import SecurityConfig
 
 TOPIC = "topic-log4j-appender"
 MAX_MESSAGES = 100
+
 
 class Log4jAppenderTest(Test):
     """
@@ -62,15 +64,16 @@ class Log4jAppenderTest(Test):
             self.logger.debug("Received message: %s" % msg)
             self.messages_received_count += 1
 
-
-    def start_consumer(self, security_protocol):
-        enable_new_consumer = security_protocol != SecurityConfig.PLAINTEXT
+    def start_consumer(self):
         self.consumer = ConsoleConsumer(self.test_context, num_nodes=self.num_brokers, kafka=self.kafka, topic=TOPIC,
-                                        consumer_timeout_ms=1000, new_consumer=enable_new_consumer,
+                                        consumer_timeout_ms=10000,
                                         message_validator=self.custom_message_validator)
         self.consumer.start()
 
-    @matrix(security_protocol=['PLAINTEXT', 'SSL', 'SASL_PLAINTEXT', 'SASL_SSL'])
+    @cluster(num_nodes=4)
+    @matrix(security_protocol=['PLAINTEXT', 'SSL'])
+    @cluster(num_nodes=5)
+    @matrix(security_protocol=['SASL_PLAINTEXT', 'SASL_SSL'])
     def test_log4j_appender(self, security_protocol='PLAINTEXT'):
         """
         Tests if KafkaLog4jAppender is producing to Kafka topic
@@ -80,7 +83,7 @@ class Log4jAppenderTest(Test):
         self.start_appender(security_protocol)
         self.appender.wait()
 
-        self.start_consumer(security_protocol)
+        self.start_consumer()
         node = self.consumer.nodes[0]
 
         wait_until(lambda: self.consumer.alive(node),

@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -17,7 +17,8 @@
 package org.apache.kafka.common.utils;
 
 /**
- * A time implementation that uses the system clock and sleep call
+ * A time implementation that uses the system clock and sleep call. Use `Time.SYSTEM` instead of creating an instance
+ * of this class.
  */
 public class SystemTime implements Time {
 
@@ -37,6 +38,7 @@ public class SystemTime implements Time {
             Thread.sleep(ms);
         } catch (InterruptedException e) {
             // just wake up early
+            Thread.currentThread().interrupt();
         }
     }
 

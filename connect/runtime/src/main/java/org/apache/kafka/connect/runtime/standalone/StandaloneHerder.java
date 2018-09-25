@@ -1,20 +1,19 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- * <p/>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p/>
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- **/
-
+ */
 package org.apache.kafka.connect.runtime.standalone;
 
 import org.apache.kafka.connect.errors.AlreadyExistsException;
@@ -23,10 +22,10 @@ import org.apache.kafka.connect.errors.NotFoundException;
 import org.apache.kafka.connect.runtime.AbstractHerder;
 import org.apache.kafka.connect.runtime.ConnectorConfig;
 import org.apache.kafka.connect.runtime.HerderConnectorContext;
+import org.apache.kafka.connect.runtime.HerderRequest;
 import org.apache.kafka.connect.runtime.SinkConnectorConfig;
 import org.apache.kafka.connect.runtime.SourceConnectorConfig;
 import org.apache.kafka.connect.runtime.TargetState;
-import org.apache.kafka.connect.runtime.TaskConfig;
 import org.apache.kafka.connect.runtime.Worker;
 import org.apache.kafka.connect.runtime.distributed.ClusterConfigState;
 import org.apache.kafka.connect.runtime.rest.entities.ConnectorInfo;
@@ -43,7 +42,15 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+
 
 /**
  * Single process, in-memory "herder". Useful for a standalone Kafka Connect process.
@@ -51,41 +58,55 @@ import java.util.Map;
 public class StandaloneHerder extends AbstractHerder {
     private static final Logger log = LoggerFactory.getLogger(StandaloneHerder.class);
 
+    private final AtomicLong requestSeqNum = new AtomicLong();
+    private final ScheduledExecutorService requestExecutorService;
+
     private ClusterConfigState configState;
 
-    public StandaloneHerder(Worker worker) {
-        this(worker, worker.workerId(), new MemoryStatusBackingStore(), new MemoryConfigBackingStore());
+    public StandaloneHerder(Worker worker, String kafkaClusterId) {
+        this(worker,
+                worker.workerId(),
+                kafkaClusterId,
+                new MemoryStatusBackingStore(),
+                new MemoryConfigBackingStore(worker.configTransformer()));
     }
 
     // visible for testing
     StandaloneHerder(Worker worker,
                      String workerId,
+                     String kafkaClusterId,
                      StatusBackingStore statusBackingStore,
                      MemoryConfigBackingStore configBackingStore) {
-        super(worker, workerId, statusBackingStore, configBackingStore);
+        super(worker, workerId, kafkaClusterId, statusBackingStore, configBackingStore);
         this.configState = ClusterConfigState.EMPTY;
+        this.requestExecutorService = Executors.newSingleThreadScheduledExecutor();
         configBackingStore.setUpdateListener(new ConfigUpdateListener());
     }
 
+    @Override
     public synchronized void start() {
         log.info("Herder starting");
         startServices();
         log.info("Herder started");
     }
 
+    @Override
     public synchronized void stop() {
         log.info("Herder stopping");
+        requestExecutorService.shutdown();
+        try {
+            if (!requestExecutorService.awaitTermination(30, TimeUnit.SECONDS))
+                requestExecutorService.shutdownNow();
+        } catch (InterruptedException e) {
+            // ignore
+        }
 
         // There's no coordination/hand-off to do here since this is all standalone. Instead, we
         // should just clean up the stuff we normally would, i.e. cleanly checkpoint and shutdown all
         // the tasks.
         for (String connName : configState.connectors()) {
             removeConnectorTasks(connName);
-            try {
-                worker.stopConnector(connName);
-            } catch (ConnectException e) {
-                log.error("Error shutting down connector {}: ", connName, e);
-            }
+            worker.stopConnector(connName);
         }
         stopServices();
         log.info("Herder stopped");
@@ -115,7 +136,13 @@ public class StandaloneHerder extends AbstractHerder {
         if (!configState.contains(connector))
             return null;
         Map<String, String> config = configState.connectorConfig(connector);
-        return new ConnectorInfo(connector, config, configState.tasks(connector));
+        return new ConnectorInfo(connector, config, configState.tasks(connector),
+            connectorTypeForClass(config.get(ConnectorConfig.CONNECTOR_CLASS_CONFIG)));
+    }
+
+    @Override
+    protected Map<String, String> config(String connName) {
+        return configState.connectorConfig(connName);
     }
 
     @Override
@@ -134,44 +161,58 @@ public class StandaloneHerder extends AbstractHerder {
     }
 
     @Override
+    public synchronized void deleteConnectorConfig(String connName, Callback<Created<ConnectorInfo>> callback) {
+        try {
+            if (!configState.contains(connName)) {
+                // Deletion, must already exist
+                callback.onCompletion(new NotFoundException("Connector " + connName + " not found", null), null);
+                return;
+            }
+
+            removeConnectorTasks(connName);
+            worker.stopConnector(connName);
+            configBackingStore.removeConnectorConfig(connName);
+            onDeletion(connName);
+            callback.onCompletion(null, new Created<ConnectorInfo>(false, null));
+        } catch (ConnectException e) {
+            callback.onCompletion(e, null);
+        }
+
+    }
+
+    @Override
     public synchronized void putConnectorConfig(String connName,
                                                 final Map<String, String> config,
                                                 boolean allowReplace,
                                                 final Callback<Created<ConnectorInfo>> callback) {
         try {
+            if (maybeAddConfigErrors(validateConnectorConfig(config), callback)) {
+                return;
+            }
+
             boolean created = false;
             if (configState.contains(connName)) {
                 if (!allowReplace) {
                     callback.onCompletion(new AlreadyExistsException("Connector " + connName + " already exists"), null);
                     return;
                 }
-                if (config == null) // Deletion, kill tasks as well
-                    removeConnectorTasks(connName);
                 worker.stopConnector(connName);
-                if (config == null) {
-                    configBackingStore.removeConnectorConfig(connName);
-                    onDeletion(connName);
-                }
             } else {
-                if (config == null) {
-                    // Deletion, must already exist
-                    callback.onCompletion(new NotFoundException("Connector " + connName + " not found", null), null);
-                    return;
-                }
                 created = true;
             }
-            if (config != null) {
-                startConnector(config);
-                updateConnectorTasks(connName);
+
+            configBackingStore.putConnectorConfig(connName, config);
+
+            if (!startConnector(connName)) {
+                callback.onCompletion(new ConnectException("Failed to start connector: " + connName), null);
+                return;
             }
-            if (config != null)
-                callback.onCompletion(null, new Created<>(created, createConnectorInfo(connName)));
-            else
-                callback.onCompletion(null, new Created<ConnectorInfo>(false, null));
+
+            updateConnectorTasks(connName);
+            callback.onCompletion(null, new Created<>(created, createConnectorInfo(connName)));
         } catch (ConnectException e) {
             callback.onCompletion(e, null);
         }
-
     }
 
     @Override
@@ -206,19 +247,24 @@ public class StandaloneHerder extends AbstractHerder {
         if (!configState.contains(taskId.connector()))
             cb.onCompletion(new NotFoundException("Connector " + taskId.connector() + " not found", null), null);
 
-        Map<String, String> taskConfig = configState.taskConfig(taskId);
-        if (taskConfig == null)
+        Map<String, String> taskConfigProps = configState.taskConfig(taskId);
+        if (taskConfigProps == null)
             cb.onCompletion(new NotFoundException("Task " + taskId + " not found", null), null);
+        Map<String, String> connConfigProps = configState.connectorConfig(taskId.connector());
 
         TargetState targetState = configState.targetState(taskId.connector());
-        try {
-            worker.stopAndAwaitTask(taskId);
-            worker.startTask(taskId, new TaskConfig(taskConfig), this, targetState);
+        worker.stopAndAwaitTask(taskId);
+        if (worker.startTask(taskId, configState, connConfigProps, taskConfigProps, this, targetState))
             cb.onCompletion(null, null);
-        } catch (Exception e) {
-            log.error("Failed to restart task {}", taskId, e);
-            cb.onCompletion(e, null);
-        }
+        else
+            cb.onCompletion(new ConnectException("Failed to start task: " + taskId), null);
+    }
+
+    @Override
+    public ConfigReloadAction connectorConfigReloadAction(final String connName) {
+        return ConfigReloadAction.valueOf(
+                configState.connectorConfig(connName).get(ConnectorConfig.CONFIG_RELOAD_ACTION_CONFIG)
+                        .toUpperCase(Locale.ROOT));
     }
 
     @Override
@@ -226,69 +272,54 @@ public class StandaloneHerder extends AbstractHerder {
         if (!configState.contains(connName))
             cb.onCompletion(new NotFoundException("Connector " + connName + " not found", null), null);
 
-        Map<String, String> config = configState.connectorConfig(connName);
-        try {
-            worker.stopConnector(connName);
-            startConnector(config);
+        worker.stopConnector(connName);
+        if (startConnector(connName))
             cb.onCompletion(null, null);
-        } catch (Exception e) {
-            log.error("Failed to restart connector {}", connName, e);
-            cb.onCompletion(e, null);
-        }
+        else
+            cb.onCompletion(new ConnectException("Failed to start connector: " + connName), null);
     }
 
-    /**
-     * Start a connector in the worker and record its state.
-     * @param connectorProps new connector configuration
-     * @return the connector name
-     */
-    private String startConnector(Map<String, String> connectorProps) {
-        ConnectorConfig connConfig = new ConnectorConfig(connectorProps);
-        String connName = connConfig.getString(ConnectorConfig.NAME_CONFIG);
-        configBackingStore.putConnectorConfig(connName, connectorProps);
+    @Override
+    public synchronized HerderRequest restartConnector(long delayMs, final String connName, final Callback<Void> cb) {
+        ScheduledFuture<?> future = requestExecutorService.schedule(new Runnable() {
+            @Override
+            public void run() {
+                restartConnector(connName, cb);
+            }
+        }, delayMs, TimeUnit.MILLISECONDS);
+
+        return new StandaloneHerderRequest(requestSeqNum.incrementAndGet(), future);
+    }
+
+    private boolean startConnector(String connName) {
+        Map<String, String> connConfigs = configState.connectorConfig(connName);
         TargetState targetState = configState.targetState(connName);
-        worker.startConnector(connConfig, new HerderConnectorContext(this, connName), this, targetState);
-        return connName;
+        return worker.startConnector(connName, connConfigs, new HerderConnectorContext(this, connName), this, targetState);
     }
 
     private List<Map<String, String>> recomputeTaskConfigs(String connName) {
         Map<String, String> config = configState.connectorConfig(connName);
 
-        ConnectorConfig connConfig;
-        if (worker.isSinkConnector(connName)) {
-            connConfig = new SinkConnectorConfig(config);
-            return worker.connectorTaskConfigs(connName,
-                                               connConfig.getInt(ConnectorConfig.TASKS_MAX_CONFIG),
-                                               connConfig.getList(SinkConnectorConfig.TOPICS_CONFIG));
-        } else {
-            connConfig = new SourceConnectorConfig(config);
-            return worker.connectorTaskConfigs(connName,
-                                               connConfig.getInt(ConnectorConfig.TASKS_MAX_CONFIG),
-                                               null);
-        }
+        ConnectorConfig connConfig = worker.isSinkConnector(connName) ?
+            new SinkConnectorConfig(plugins(), config) :
+            new SourceConnectorConfig(plugins(), config);
 
+        return worker.connectorTaskConfigs(connName, connConfig);
     }
 
     private void createConnectorTasks(String connName, TargetState initialState) {
+        Map<String, String> connConfigs = configState.connectorConfig(connName);
+
         for (ConnectorTaskId taskId : configState.tasks(connName)) {
             Map<String, String> taskConfigMap = configState.taskConfig(taskId);
-            TaskConfig config = new TaskConfig(taskConfigMap);
-            try {
-                worker.startTask(taskId, config, this, initialState);
-            } catch (Throwable e) {
-                log.error("Failed to add task {}: ", taskId, e);
-                // Swallow this so we can continue updating the rest of the tasks
-                // FIXME what's the proper response? Kill all the tasks? Consider this the same as a task
-                // that died after starting successfully.
-            }
+            worker.startTask(taskId, configState, connConfigs, taskConfigMap, this, initialState);
         }
     }
 
     private void removeConnectorTasks(String connName) {
         Collection<ConnectorTaskId> tasks = configState.tasks(connName);
         if (!tasks.isEmpty()) {
-            worker.stopTasks(tasks);
-            worker.awaitStopTasks(tasks);
+            worker.stopAndAwaitTasks(tasks);
             configBackingStore.removeTaskConfigs(connName);
         }
     }
@@ -304,7 +335,8 @@ public class StandaloneHerder extends AbstractHerder {
 
         if (!newTaskConfigs.equals(oldTaskConfigs)) {
             removeConnectorTasks(connName);
-            configBackingStore.putTaskConfigs(connName, newTaskConfigs);
+            List<Map<String, String>> rawTaskConfigs = reverseTransform(connName, configState, newTaskConfigs);
+            configBackingStore.putTaskConfigs(connName, rawTaskConfigs);
             createConnectorTasks(connName, configState.targetState(connName));
         }
     }
@@ -353,4 +385,32 @@ public class StandaloneHerder extends AbstractHerder {
         }
     }
 
+    static class StandaloneHerderRequest implements HerderRequest {
+        private final long seq;
+        private final ScheduledFuture<?> future;
+
+        public StandaloneHerderRequest(long seq, ScheduledFuture<?> future) {
+            this.seq = seq;
+            this.future = future;
+        }
+
+        @Override
+        public void cancel() {
+            future.cancel(false);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof StandaloneHerderRequest))
+                return false;
+            StandaloneHerderRequest other = (StandaloneHerderRequest) o;
+            return seq == other.seq;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(seq);
+        }
+    }
 }
