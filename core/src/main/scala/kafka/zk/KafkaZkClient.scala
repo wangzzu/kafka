@@ -609,7 +609,7 @@ class KafkaZkClient private (zooKeeperClient: ZooKeeperClient, isSecure: Boolean
           .format(path, Utils.utf8(data), expectVersion, setDataResponse.stat.getVersion))
         (true, setDataResponse.stat.getVersion)
 
-      case Code.BADVERSION =>
+      case Code.BADVERSION => //note: 可以是重试之后成功的，此时版本并不一致，这时候通过 checker 进行检查
         optionalChecker match {
           case Some(checker) => checker(this, path, data)
           case _ =>

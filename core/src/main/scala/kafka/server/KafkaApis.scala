@@ -1186,12 +1186,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     else {
       // get metadata (and create the topic if necessary)
       val (partition, topicMetadata) = findCoordinatorRequest.coordinatorType match {
-        case FindCoordinatorRequest.CoordinatorType.GROUP =>
+        case FindCoordinatorRequest.CoordinatorType.GROUP => //note: 查询 GroupCoordinator 的请求
           val partition = groupCoordinator.partitionFor(findCoordinatorRequest.coordinatorKey)
           val metadata = getOrCreateInternalTopic(GROUP_METADATA_TOPIC_NAME, request.context.listenerName)
           (partition, metadata)
 
-        case FindCoordinatorRequest.CoordinatorType.TRANSACTION =>
+        case FindCoordinatorRequest.CoordinatorType.TRANSACTION => //note: 查询 TransactionCoordinator 的请求
           val partition = txnCoordinator.partitionFor(findCoordinatorRequest.coordinatorKey)
           val metadata = getOrCreateInternalTopic(TRANSACTION_STATE_TOPIC_NAME, request.context.listenerName)
           (partition, metadata)
@@ -1211,7 +1211,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
           coordinatorEndpoint match {
             case Some(endpoint) if !endpoint.isEmpty =>
-              new FindCoordinatorResponse(requestThrottleMs, Errors.NONE, endpoint)
+              new FindCoordinatorResponse(requestThrottleMs, Errors.NONE, endpoint) //note: 返回最后的结果
             case _ =>
               new FindCoordinatorResponse(requestThrottleMs, Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode)
           }
@@ -1610,12 +1610,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     val initProducerIdRequest = request.body[InitProducerIdRequest]
     val transactionalId = initProducerIdRequest.transactionalId
 
-    if (transactionalId != null) {
+    if (transactionalId != null) { //note: 设置 txn.id 时，验证对 txn.id 的权限
       if (!authorize(request.session, Write, Resource(TransactionalId, transactionalId, LITERAL))) {
         sendErrorResponseMaybeThrottle(request, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.exception)
         return
       }
-    } else if (!authorize(request.session, IdempotentWrite, Resource.ClusterResource)) {
+    } else if (!authorize(request.session, IdempotentWrite, Resource.ClusterResource)) { //note: 没有设置 txn.id 时，验证对集群是否有幂等性权限
       sendErrorResponseMaybeThrottle(request, Errors.CLUSTER_AUTHORIZATION_FAILED.exception)
       return
     }
@@ -1628,9 +1628,11 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
       sendResponseMaybeThrottle(request, createResponse)
     }
+    //note: 生成相应的了 pid，返回给 producer
     txnCoordinator.handleInitProducerId(transactionalId, initProducerIdRequest.transactionTimeoutMs, sendResponseCallback)
   }
 
+  //note: 事务完成的处理
   def handleEndTxnRequest(request: RequestChannel.Request): Unit = {
     ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
     val endTxnRequest = request.body[EndTxnRequest]
@@ -1646,6 +1648,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         sendResponseMaybeThrottle(request, createResponse)
       }
 
+      //note: 处理 end-txn 请求
       txnCoordinator.handleEndTransaction(endTxnRequest.transactionalId,
         endTxnRequest.producerId,
         endTxnRequest.producerEpoch,
@@ -1656,6 +1659,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         new EndTxnResponse(requestThrottleMs, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED))
   }
 
+  //note: 这个请求是在处理 end-txn 请求的过程中发送的，TODO：这里需要确定在 end-txn 中添加这个请求的目的，是2pc 的考虑么？
   def handleWriteTxnMarkersRequest(request: RequestChannel.Request): Unit = {
     ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
     authorizeClusterAction(request)
@@ -1664,7 +1668,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     val markers = writeTxnMarkersRequest.markers
     val numAppends = new AtomicInteger(markers.size)
 
-    if (numAppends.get == 0) {
+    if (numAppends.get == 0) { //note: 没有 marker 等待写入
       sendResponseExemptThrottle(request, new WriteTxnMarkersResponse(errors))
       return
     }
@@ -1681,6 +1685,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       * request, so there could be multiple appends of markers to the log. The final response will be sent only
       * after all appends have returned.
       */
+    //note: 这个方法是在 txn marker 日志追加成功后调用的，它可能被调用多次，因为在一个 WriteTxnRequest 中可能会有多个 marker
     def maybeSendResponseCallback(producerId: Long, result: TransactionResult)(responseStatus: Map[TopicPartition, PartitionResponse]): Unit = {
       trace(s"End transaction marker append for producer id $producerId completed with status: $responseStatus")
       val currentErrors = new ConcurrentHashMap[TopicPartition, Errors](responseStatus.mapValues(_.error).asJava)
@@ -1690,6 +1695,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }.keys
 
       if (successfulOffsetsPartitions.nonEmpty) {
+        //note: 当 marker 作为 txn offset commit 被写入之后，这里会调用 group-coordinator 来把 offset 具体化到缓存中
         // as soon as the end transaction marker has been written for a transactional offset commit,
         // call to the group coordinator to materialize the offsets into the cache
         try {
@@ -1722,7 +1728,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           case Some(magic) =>
             if (magic < RecordBatch.MAGIC_VALUE_V2)
               currentErrors.put(partition, Errors.UNSUPPORTED_FOR_MESSAGE_FORMAT)
-            else
+            else //note: 只在 MAGIC_VALUE_V2 版本才有支持
               partitionsWithCompatibleMessageFormat += partition
           case None =>
             currentErrors.put(partition, Errors.UNKNOWN_TOPIC_OR_PARTITION)
@@ -1734,7 +1740,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
       if (partitionsWithCompatibleMessageFormat.isEmpty) {
         numAppends.decrementAndGet()
-        skippedMarkers += 1
+        skippedMarkers += 1 //note: skip marker num
       } else {
         val controlRecords = partitionsWithCompatibleMessageFormat.map { partition =>
           val controlRecordType = marker.transactionResult match {
@@ -1745,7 +1751,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           partition -> MemoryRecords.withEndTransactionMarker(producerId, marker.producerEpoch, endTxnMarker)
         }.toMap
 
-        replicaManager.appendRecords(
+        replicaManager.appendRecords( //note: 追加相应的 marker 日志
           timeout = config.requestTimeoutMs.toLong,
           requiredAcks = -1,
           internalTopicsAllowed = true,
@@ -1773,13 +1779,13 @@ class KafkaApis(val requestChannel: RequestChannel,
     val partitionsToAdd = addPartitionsToTxnRequest.partitions.asScala
     if (!authorize(request.session, Write, Resource(TransactionalId, transactionalId, LITERAL)))
       sendResponseMaybeThrottle(request, requestThrottleMs =>
-        addPartitionsToTxnRequest.getErrorResponse(requestThrottleMs, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.exception))
+        addPartitionsToTxnRequest.getErrorResponse(requestThrottleMs, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.exception)) //note: 没有这个 txn.id 的写入权限
     else {
       val unauthorizedTopicErrors = mutable.Map[TopicPartition, Errors]()
       val nonExistingTopicErrors = mutable.Map[TopicPartition, Errors]()
       val authorizedPartitions = mutable.Set[TopicPartition]()
 
-      for (topicPartition <- partitionsToAdd) {
+      for (topicPartition <- partitionsToAdd) { //note: 验证 topic 写权限
         if (org.apache.kafka.common.internals.Topic.isInternal(topicPartition.topic) ||
             !authorize(request.session, Write, Resource(Topic, topicPartition.topic, LITERAL)))
           unauthorizedTopicErrors += topicPartition -> Errors.TOPIC_AUTHORIZATION_FAILED
@@ -1794,7 +1800,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         // partitions which failed, and an 'OPERATION_NOT_ATTEMPTED' error code for the partitions which succeeded
         // the authorization check to indicate that they were not added to the transaction.
         val partitionErrors = unauthorizedTopicErrors ++ nonExistingTopicErrors ++
-          authorizedPartitions.map(_ -> Errors.OPERATION_NOT_ATTEMPTED)
+          authorizedPartitions.map(_ -> Errors.OPERATION_NOT_ATTEMPTED)  //note: 其他的 partition 也不会进行处理
         sendResponseMaybeThrottle(request, requestThrottleMs =>
           new AddPartitionsToTxnResponse(requestThrottleMs, partitionErrors.asJava))
       } else {

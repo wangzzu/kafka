@@ -33,7 +33,7 @@ import scala.collection.JavaConverters._
  */
 object ProducerIdManager extends Logging {
   val CurrentVersion: Long = 1L
-  val PidBlockSize: Long = 1000L
+  val PidBlockSize: Long = 1000L //note: 每次默认申请1000个pid
 
   def generateProducerIdBlockJson(producerIdBlock: ProducerIdBlock): Array[Byte] = {
     Json.encodeAsBytes(Map("version" -> CurrentVersion,
@@ -92,10 +92,11 @@ class ProducerIdManager(val brokerId: Int, val zkClient: KafkaZkClient) extends 
       // generate the new producerId block
       currentProducerIdBlock = dataOpt match {
         case Some(data) =>
+          //note: 从 zk 获取当前最新的 pid 信息，如果后面更新失败，这里也会重新从 zk 获取
           val currProducerIdBlock = ProducerIdManager.parseProducerIdBlockData(data)
           debug(s"Read current producerId block $currProducerIdBlock, Zk path version $zkVersion")
 
-          if (currProducerIdBlock.blockEndId > Long.MaxValue - ProducerIdManager.PidBlockSize) {
+          if (currProducerIdBlock.blockEndId > Long.MaxValue - ProducerIdManager.PidBlockSize) {//note:
             // we have exhausted all producerIds (wow!), treat it as a fatal error
             fatal(s"Exhausted all producerIds as the next block's end producerId is will has exceeded long type limit (current block end producerId is ${currProducerIdBlock.blockEndId})")
             throw new KafkaException("Have exhausted all producerIds.")
@@ -110,6 +111,7 @@ class ProducerIdManager(val brokerId: Int, val zkClient: KafkaZkClient) extends 
       val newProducerIdBlockData = ProducerIdManager.generateProducerIdBlockJson(currentProducerIdBlock)
 
       // try to write the new producerId block into zookeeper
+      //note: 将新的 pid 信息写入到 zk
       val (succeeded, version) = zkClient.conditionalUpdatePath(ProducerIdBlockZNode.path,
         newProducerIdBlockData, zkVersion, Some(checkProducerIdBlockZkData))
       zkWriteComplete = succeeded
@@ -125,7 +127,7 @@ class ProducerIdManager(val brokerId: Int, val zkClient: KafkaZkClient) extends 
       zkClient.getDataAndVersion(ProducerIdBlockZNode.path) match {
         case (Some(data), zkVersion) =>
           val currProducerIdBLock = ProducerIdManager.parseProducerIdBlockData(data)
-          (currProducerIdBLock == expectedPidBlock, zkVersion)
+          (currProducerIdBLock == expectedPidBlock, zkVersion) //note: 检查是否写入成功
         case (None, _) => (false, -1)
       }
     } catch {
@@ -139,14 +141,14 @@ class ProducerIdManager(val brokerId: Int, val zkClient: KafkaZkClient) extends 
   def generateProducerId(): Long = {
     this synchronized {
       // grab a new block of producerIds if this block has been exhausted
-      if (nextProducerId > currentProducerIdBlock.blockEndId) {
+      if (nextProducerId > currentProducerIdBlock.blockEndId) { //note: 如果分配的 pid 用完了，重新再向 zk 申请一批
         getNewProducerIdBlock()
         nextProducerId = currentProducerIdBlock.blockStartId + 1
       } else {
         nextProducerId += 1
       }
 
-      nextProducerId - 1
+      nextProducerId - 1 //note: 返回分配的 pid
     }
   }
 

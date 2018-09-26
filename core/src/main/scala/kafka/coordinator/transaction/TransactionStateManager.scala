@@ -44,10 +44,10 @@ import scala.collection.JavaConverters._
 
 object TransactionStateManager {
   // default transaction management config values
-  val DefaultTransactionsMaxTimeoutMs: Int = TimeUnit.MINUTES.toMillis(15).toInt
-  val DefaultTransactionalIdExpirationMs: Int = TimeUnit.DAYS.toMillis(7).toInt
-  val DefaultAbortTimedOutTransactionsIntervalMs: Int = TimeUnit.MINUTES.toMillis(1).toInt
-  val DefaultRemoveExpiredTransactionalIdsIntervalMs: Int = TimeUnit.HOURS.toMillis(1).toInt
+  val DefaultTransactionsMaxTimeoutMs: Int = TimeUnit.MINUTES.toMillis(15).toInt //note: 15min，事务最大允许的超时时间
+  val DefaultTransactionalIdExpirationMs: Int = TimeUnit.DAYS.toMillis(7).toInt //note: 7d，事务 id 最大允许的过期时间
+  val DefaultAbortTimedOutTransactionsIntervalMs: Int = TimeUnit.MINUTES.toMillis(1).toInt //note: 1min，事务因超时被取消的时间间隔
+  val DefaultRemoveExpiredTransactionalIdsIntervalMs: Int = TimeUnit.HOURS.toMillis(1).toInt //note: 1h，事务 id 因过期被移除的时间间隔
 }
 
 /**
@@ -67,6 +67,10 @@ object TransactionStateManager {
  * <li>`ReplicaManager.appendRecords` should never be invoked while holding a `txnMetadata` lock.</li>
  * </ul>
  */
+//note: 事务状态管理器主要做的事情：
+//note: 1. 事务日志，它是一个特殊的、内部使用的 topic；
+//note: 2. 事务的 meta，包含正在进行的事务的状态；
+//note: 3. 处理事务与事务 id 过期的后台操作；
 class TransactionStateManager(brokerId: Int,
                               zkClient: KafkaZkClient,
                               scheduler: Scheduler,
@@ -82,12 +86,15 @@ class TransactionStateManager(brokerId: Int,
   private val shuttingDown = new AtomicBoolean(false)
 
   /** lock protecting access to the transactional metadata cache, including loading and leaving partition sets */
+  //note: 事务 metadata 缓存操作时的读写锁
   private val stateLock = new ReentrantReadWriteLock()
 
   /** partitions of transaction topic that are being loaded, state lock should be called BEFORE accessing this set */
+  //note: 事务 topic 的 partition 正在被记载的列表
   private val loadingPartitions: mutable.Set[TransactionPartitionAndLeaderEpoch] = mutable.Set()
 
   /** partitions of transaction topic that are being removed, state lock should be called BEFORE accessing this set */
+  //note: 事务 topic 的 partition 正在被移出的列表
   private val leavingPartitions: mutable.Set[TransactionPartitionAndLeaderEpoch] = mutable.Set()
 
   /** transaction metadata cache indexed by assigned transaction topic partition ids */
@@ -215,9 +222,11 @@ class TransactionStateManager(brokerId: Int,
     }, delay = config.removeExpiredTransactionalIdsIntervalMs, period = config.removeExpiredTransactionalIdsIntervalMs)
   }
 
+  //note: 获取 txn.id 相关联的 TxnMetadata 信息，没有的话返回 None
   def getTransactionState(transactionalId: String): Either[Errors, Option[CoordinatorEpochAndTxnMetadata]] =
     getAndMaybeAddTransactionState(transactionalId, None)
 
+  //note: 获取 txn.id 相关联的 TxnMetadata 信息，没有的话创建一个 TxnMetadata 对象并添加到 cache 中
   def putTransactionStateIfNotExists(transactionalId: String,
                                      txnMetadata: TransactionMetadata): Either[Errors, CoordinatorEpochAndTxnMetadata] =
     getAndMaybeAddTransactionState(transactionalId, Some(txnMetadata))
@@ -230,17 +239,20 @@ class TransactionStateManager(brokerId: Int,
    *
    * This function is covered by the state read lock
    */
+  //note: 获取与 txn.id 相关的 txn metadata，如果这个 coordinator 不包含这个 txn 的 partition 或者正在加载这个 partition，那么就返回一个 error；
+  //note: 如果没有找到这个 partition 相关记录，那么就返回 None 或者创建一个新的 metadata 并添加到 cache 中。
+  //note: Left 和 Right 是 Either 的实现类，代表了 Either 两个值其中一个值（左边的或者右边的，这里左边是 Errors，右边是正常结果）
   private def getAndMaybeAddTransactionState(transactionalId: String,
                                              createdTxnMetadataOpt: Option[TransactionMetadata]): Either[Errors, Option[CoordinatorEpochAndTxnMetadata]] = {
     inReadLock(stateLock) {
       val partitionId = partitionFor(transactionalId)
-      if (loadingPartitions.exists(_.txnPartitionId == partitionId))
+      if (loadingPartitions.exists(_.txnPartitionId == partitionId))//note: 正在加载（刚成为 partition 的 leader）
         Left(Errors.COORDINATOR_LOAD_IN_PROGRESS)
-      else if (leavingPartitions.exists(_.txnPartitionId == partitionId))
+      else if (leavingPartitions.exists(_.txnPartitionId == partitionId))//note: 正在移除（从 leader 变成了 follower）
         Left(Errors.NOT_COORDINATOR)
       else {
         transactionMetadataCache.get(partitionId) match {
-          case Some(cacheEntry) =>
+          case Some(cacheEntry) => //note: 添加到缓存中 txnID 对应的 value 中
             val txnMetadata = Option(cacheEntry.metadataPerTransactionalId.get(transactionalId)).orElse {
               createdTxnMetadataOpt.map { createdTxnMetadata =>
                 Option(cacheEntry.metadataPerTransactionalId.putIfNotExists(transactionalId, createdTxnMetadata))
@@ -275,6 +287,7 @@ class TransactionStateManager(brokerId: Int,
     props
   }
 
+  //note: 获取这个事务在事务 topic 上对应的 partition id，与 group Coordinator 的获取方式一致
   def partitionFor(transactionalId: String): Int = Utils.abs(transactionalId.hashCode) % transactionTopicPartitionCount
 
   /**
@@ -459,6 +472,7 @@ class TransactionStateManager(brokerId: Int,
       throw new KafkaException(s"Transaction topic number of partitions has changed from $transactionTopicPartitionCount to $curTransactionTopicPartitionCount")
   }
 
+  //note: 追加事务日志信息
   def appendTransactionToLog(transactionalId: String,
                              coordinatorEpoch: Int,
                              newMetadata: TxnTransitMetadata,
@@ -475,6 +489,7 @@ class TransactionStateManager(brokerId: Int,
     val recordsPerPartition = Map(topicPartition -> records)
 
     // set the callback function to update transaction status in cache after log append completed
+    //note: 当日志追加完成后，更新缓存中事务的状态信息
     def updateCacheCallback(responseStatus: collection.Map[TopicPartition, PartitionResponse]): Unit = {
       // the append response should only contain the topics partition
       if (responseStatus.size != 1 || !responseStatus.contains(topicPartition))
@@ -489,7 +504,7 @@ class TransactionStateManager(brokerId: Int,
         debug(s"Appending $transactionalId's new metadata $newMetadata failed due to ${status.error.exceptionName}")
 
         // transform the log append error code to the corresponding coordinator error code
-        status.error match {
+        status.error match { //note: Error 归类
           case Errors.UNKNOWN_TOPIC_OR_PARTITION
                | Errors.NOT_ENOUGH_REPLICAS
                | Errors.NOT_ENOUGH_REPLICAS_AFTER_APPEND
@@ -521,16 +536,16 @@ class TransactionStateManager(brokerId: Int,
           case Right(Some(epochAndMetadata)) =>
             val metadata = epochAndMetadata.transactionMetadata
 
-            metadata.inLock {
-              if (epochAndMetadata.coordinatorEpoch != coordinatorEpoch) {
+            metadata.inLock { //note: 加锁处理
+              if (epochAndMetadata.coordinatorEpoch != coordinatorEpoch) { //note: cache 由于 txn partition 的迁移已经变化，直接返回异常
                 // the cache may have been changed due to txn topic partition emigration and immigration,
                 // in this case directly return NOT_COORDINATOR to client and let it to re-discover the transaction coordinator
                 info(s"The cached coordinator epoch for $transactionalId has changed to ${epochAndMetadata.coordinatorEpoch} after appended its new metadata $newMetadata " +
                   s"to the transaction log (txn topic partition ${partitionFor(transactionalId)}) while it was $coordinatorEpoch before appending; " +
                   s"aborting transition to the new metadata and returning ${Errors.NOT_COORDINATOR} in the callback")
                 responseError = Errors.NOT_COORDINATOR
-              } else {
-                metadata.completeTransitionTo(newMetadata)
+              } else { //note: 更新缓存（如果更新失败，会抛出异常）
+                metadata.completeTransitionTo(newMetadata) //note: 真正改变状态
                 debug(s"Updating $transactionalId's transaction state to $newMetadata with coordinator epoch $coordinatorEpoch for $transactionalId succeeded")
               }
             }
@@ -543,7 +558,7 @@ class TransactionStateManager(brokerId: Int,
               s"aborting transition to the new metadata and returning ${Errors.NOT_COORDINATOR} in the callback")
             responseError = Errors.NOT_COORDINATOR
         }
-      } else {
+      } else { //note: 有异常的情况下，重新设置等待的事务状态
         // Reset the pending state when returning an error, since there is no active transaction for the transactional id at this point.
         getTransactionState(transactionalId) match {
           case Right(Some(epochAndTxnMetadata)) =>
@@ -557,7 +572,7 @@ class TransactionStateManager(brokerId: Int,
                   info(s"TransactionalId ${metadata.transactionalId} append transaction log for $newMetadata transition failed due to $responseError, " +
                     s"resetting pending state from ${metadata.pendingState}, aborting state transition and returning $responseError in the callback")
 
-                  metadata.pendingState = None
+                  metadata.pendingState = None //note: 设置为 None
                 }
               } else {
                 info(s"TransactionalId ${metadata.transactionalId} append transaction log for $newMetadata transition failed due to $responseError, " +
@@ -578,7 +593,7 @@ class TransactionStateManager(brokerId: Int,
 
       }
 
-      responseCallback(responseError)
+      responseCallback(responseError) //note: 调用回调
     }
 
     inReadLock(stateLock) {
@@ -601,15 +616,16 @@ class TransactionStateManager(brokerId: Int,
           val append: Boolean = metadata.inLock {
             if (epochAndMetadata.coordinatorEpoch != coordinatorEpoch) {
               // the coordinator epoch has changed, reply to client immediately with NOT_COORDINATOR
+              //note: coordinator 的 epoch 改变了，向 client 返回一个 NOT_COORDINATOR 异常
               responseCallback(Errors.NOT_COORDINATOR)
               false
-            } else {
+            } else { //note: 直接追加事务日志，因为在同一个 coordinator epoch 下没有并发线程在操作，直接追加 txn 日志
               // do not need to check the metadata object itself since no concurrent thread should be able to modify it
               // under the same coordinator epoch, so directly append to txn log now
               true
             }
           }
-          if (append) {
+          if (append) { //note: 追加日志信息
             replicaManager.appendRecords(
                 newMetadata.txnTimeoutMs.toLong,
                 TransactionLog.EnforcedRequiredAcks,

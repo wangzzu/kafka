@@ -110,6 +110,7 @@ private[transaction] object TransactionMetadata {
   def isValidTransition(oldState: TransactionState, newState: TransactionState): Boolean =
     TransactionMetadata.validPreviousStates(newState).contains(oldState)
 
+  //note: 有效的状态转移
   private val validPreviousStates: Map[TransactionState, Set[TransactionState]] =
     Map(Empty -> Set(Empty, CompleteCommit, CompleteAbort),
       Ongoing -> Set(Ongoing, Empty, CompleteCommit, CompleteAbort),
@@ -146,11 +147,11 @@ private[transaction] case class TxnTransitMetadata(producerId: Long,
   *
   * @param producerId            producer id
   * @param producerEpoch         current epoch of the producer
-  * @param txnTimeoutMs          timeout to be used to abort long running transactions
+  * @param txnTimeoutMs          timeout to be used to abort long running transactions //note: 事务超时的时间
   * @param state                 current state of the transaction
   * @param topicPartitions       current set of partitions that are part of this transaction
-  * @param txnStartTimestamp     time the transaction was started, i.e., when first partition is added
-  * @param txnLastUpdateTimestamp   updated when any operation updates the TransactionMetadata. To be used for expiration
+  * @param txnStartTimestamp     time the transaction was started, i.e., when first partition is added //note: 事务开始的时间
+  * @param txnLastUpdateTimestamp   updated when any operation updates the TransactionMetadata. To be used for expiration //note: 事务最近更新的时间
   */
 @nonthreadsafe
 private[transaction] class TransactionMetadata(val transactionalId: String,
@@ -165,6 +166,7 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
   // pending state is used to indicate the state that this transaction is going to
   // transit to, and for blocking future attempts to transit it again if it is not legal;
   // initialized as the same as the current state
+  //note: 事务将转移到的状态，如果状态是非法的，在转移的过程中它将会试图 block
   var pendingState: Option[TransactionState] = None
 
   private[transaction] val lock = new ReentrantLock
@@ -189,14 +191,16 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
     TxnTransitMetadata(producerId, producerEpoch, txnTimeoutMs, state, topicPartitions.toSet, txnStartTimestamp, txnLastUpdateTimestamp)
   }
 
+  //note: 下面这些都是状态转移的函数
   def prepareFenceProducerEpoch(): TxnTransitMetadata = {
-    if (producerEpoch == Short.MaxValue)
+    if (producerEpoch == Short.MaxValue) //note: 这里有个判断
       throw new IllegalStateException(s"Cannot fence producer with epoch equal to Short.MaxValue since this would overflow")
 
     prepareTransitionTo(PrepareEpochFence, producerId, (producerEpoch + 1).toShort, txnTimeoutMs, topicPartitions.toSet,
       txnStartTimestamp, txnLastUpdateTimestamp)
   }
 
+  //note: 增加 pid.epoch，并转移状态
   def prepareIncrementProducerEpoch(newTxnTimeoutMs: Int, updateTimestamp: Long): TxnTransitMetadata = {
     if (isProducerEpochExhausted)
       throw new IllegalStateException(s"Cannot allocate any more producer epochs for producerId $producerId")
@@ -206,12 +210,14 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
       updateTimestamp)
   }
 
+  //note: 对于一个新的 PID，开启新的循环，并转移相应的状态
   def prepareProducerIdRotation(newProducerId: Long, newTxnTimeoutMs: Int, updateTimestamp: Long): TxnTransitMetadata = {
     if (hasPendingTransaction)
       throw new IllegalStateException("Cannot rotate producer ids while a transaction is still pending")
     prepareTransitionTo(Empty, newProducerId, 0, newTxnTimeoutMs, immutable.Set.empty[TopicPartition], -1, updateTimestamp)
   }
 
+  //note: meta 中添加相应的 partition
   def prepareAddPartitions(addedTopicPartitions: immutable.Set[TopicPartition], updateTimestamp: Long): TxnTransitMetadata = {
     val newTxnStartTimestamp = state match {
       case Empty | CompleteAbort | CompleteCommit => updateTimestamp
@@ -242,8 +248,10 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
    * Check if the epochs have been exhausted for the current producerId. We do not allow the client to use an
    * epoch equal to Short.MaxValue to ensure that the coordinator will always be able to fence an existing producer.
    */
+  //note: 检查当前的 PID 是否超过了限制
   def isProducerEpochExhausted: Boolean = producerEpoch >= Short.MaxValue - 1
 
+  //note: 如果处在 Ongoing/PrepareAbort/PrepareCommit 状态，返回 true
   private def hasPendingTransaction: Boolean = {
     state match {
       case Ongoing | PrepareAbort | PrepareCommit => true
@@ -269,13 +277,13 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
       throw new IllegalArgumentException(s"Illegal new producer epoch $newEpoch")
 
     // check that the new state transition is valid and update the pending state if necessary
-    if (TransactionMetadata.validPreviousStates(newState).contains(state)) {
+    if (TransactionMetadata.validPreviousStates(newState).contains(state)) { //note: 状态转移合法
       val transitMetadata = TxnTransitMetadata(newProducerId, newEpoch, newTxnTimeoutMs, newState,
         newTopicPartitions, newTxnStartTimestamp, updateTimestamp)
       debug(s"TransactionalId $transactionalId prepare transition from $state to $transitMetadata")
       pendingState = Some(newState)
       transitMetadata
-    } else {
+    } else { //note: 状态转移不合法
       throw new IllegalStateException(s"Preparing transaction state transition to $newState failed since the target state" +
         s" $newState is not a valid previous state of the current state $state")
     }
@@ -293,6 +301,13 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
     // written and replicated (see TransactionStateManager#appendTransactionToLog)
     //
     // if valid, transition is done via overwriting the whole object to ensure synchronization
+    //note: metadata 转移只要在满足下面的条件时才是合法的：
+    //note: 1. new state 已经在 pendingState 中指明了；
+    //note: 2. epoch 应该是 same value、old value+1 或则 0 （如果是新的 PID） 其中一个；
+    //note: 3. the last update time 要大于旧的值；
+    //note: 4. old partition set 是新的子集；
+    //note: 最后，我们应该更新这个 metadata 在相关的日志已经被成功持久化及备份完成后。
+    //note: 如果是有效的，事务转移就完成了。
 
     val toState = pendingState.getOrElse {
       fatal(s"$this's transition to $transitMetadata failed since pendingState is not defined: this should not happen")
@@ -310,7 +325,7 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
             transitMetadata.topicPartitions.nonEmpty ||
             transitMetadata.txnStartTimestamp != -1) {
 
-            throwStateTransitionFailure(transitMetadata)
+            throwStateTransitionFailure(transitMetadata) //note: 抛出相应的异常
           } else {
             txnTimeoutMs = transitMetadata.txnTimeoutMs
             producerEpoch = transitMetadata.producerEpoch
@@ -368,7 +383,7 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
       debug(s"TransactionalId $transactionalId complete transition from $state to $transitMetadata")
       txnLastUpdateTimestamp = transitMetadata.txnLastUpdateTimestamp
       pendingState = None
-      state = toState
+      state = toState //note: 状态改变成功
     }
   }
 
@@ -406,6 +421,7 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
       s"txnLastUpdateTimestamp=$txnLastUpdateTimestamp)"
   }
 
+  //note: 判断多个指标，多个指标都相等时，才认为是 equal
   override def equals(that: Any): Boolean = that match {
     case other: TransactionMetadata =>
       transactionalId == other.transactionalId &&

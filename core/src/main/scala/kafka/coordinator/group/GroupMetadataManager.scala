@@ -802,6 +802,7 @@ class GroupMetadataManager(brokerId: Int,
    * more group metadata locks to handle transaction completion, this operation is scheduled on
    * the scheduler thread to avoid deadlocks.
    */
+  //note:
   def scheduleHandleTxnCompletion(producerId: Long, completedPartitions: Set[Int], isCommit: Boolean): Unit = {
     scheduler.schedule(s"handleTxnCompletion-$producerId", () =>
       handleTxnCompletion(producerId, completedPartitions, isCommit))

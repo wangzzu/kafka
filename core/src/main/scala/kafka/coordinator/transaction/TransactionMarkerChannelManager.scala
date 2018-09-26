@@ -91,6 +91,7 @@ object TransactionMarkerChannelManager {
 
 }
 
+//note: TxnMarker queue，保留了相关的信息
 class TxnMarkerQueue(@volatile var destination: Node) {
 
   // keep track of the requests per txn topic partition so we can easily clear the queue
@@ -167,11 +168,13 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
   // visible for testing
   private[transaction] def queueForUnknownBroker = markersQueueForUnknownBroker
 
+  //note: 向指定的 broker 添加 Marker 消息
   private[transaction] def addMarkersForBroker(broker: Node, txnTopicPartition: Int, txnIdAndMarker: TxnIdAndMarkerEntry) {
     val brokerId = broker.id
 
     // we do not synchronize on the update of the broker node with the enqueuing,
     // since even if there is a race condition we will just retry
+    //note: 这里没有加锁的原因是，如果有竞争，这里会进行重试
     val brokerRequestQueue = CoreUtils.atomicGetOrUpdate(markersQueuePerBroker, brokerId,
         new TxnMarkerQueue(broker))
     brokerRequestQueue.destination = broker
@@ -266,9 +269,12 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
       }
     }
 
+    //note: 构造一个 DelayedTxnMarker
     val delayedTxnMarker = new DelayedTxnMarker(txnMetadata, appendToLogCallback, txnStateManager.stateReadLock)
+    //note:
     txnMarkerPurgatory.tryCompleteElseWatch(delayedTxnMarker, Seq(transactionalId))
 
+    //note:
     addTxnMarkersToBrokerQueue(transactionalId, txnMetadata.producerId, txnMetadata.producerEpoch, txnResult, coordinatorEpoch, txnMetadata.topicPartitions.toSet)
   }
 
@@ -303,6 +309,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
       _ == Errors.COORDINATOR_NOT_AVAILABLE)
   }
 
+  //note:
   def addTxnMarkersToBrokerQueue(transactionalId: String, producerId: Long, producerEpoch: Short,
                                  result: TransactionResult, coordinatorEpoch: Int,
                                  topicPartitions: immutable.Set[TopicPartition]): Unit = {

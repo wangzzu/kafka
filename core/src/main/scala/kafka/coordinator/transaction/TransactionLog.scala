@@ -37,16 +37,20 @@ import scala.collection.mutable
  * key version 0:               [transactionalId]
  *    -> value version 0:       [producer_id, producer_epoch, expire_timestamp, status, [topic [partition], timestamp]
  */
+//note: 事务 topic 存储的 msg 代表了相关事务 id 的 pid 和事务状态，key 和 value 字段信息都有相应的版本，
+//note: key version 0：txnid；
+//note: value version 0：pid、producer-epoch、expire-time、status、[topic-partition， timestamp]
 object TransactionLog {
 
   // log-level config default values and enforced values
+  //note: 事务 topic 默认的配置信息
   val DefaultNumPartitions: Int = 50
   val DefaultSegmentBytes: Int = 100 * 1024 * 1024
   val DefaultReplicationFactor: Short = 3.toShort
   val DefaultMinInSyncReplicas: Int = 2
   val DefaultLoadBufferSize: Int = 5 * 1024 * 1024
 
-  // enforce always using
+  // enforce always using //note: 强制的限制
   //  1. cleanup policy = compact
   //  2. compression = none
   //  3. unclean leader election = disabled
@@ -133,10 +137,10 @@ object TransactionLog {
   private[coordinator] def keyToBytes(transactionalId: String): Array[Byte] = {
     import KeySchema._
     val key = new Struct(CURRENT)
-    key.set(TXN_ID_FIELD, transactionalId)
+    key.set(TXN_ID_FIELD, transactionalId) //note: 设置 txn.id 信息
 
     val byteBuffer = ByteBuffer.allocate(2 /* version */ + key.sizeOf)
-    byteBuffer.putShort(CURRENT_VERSION)
+    byteBuffer.putShort(CURRENT_VERSION) //note: 前两个字节是 version
     key.writeTo(byteBuffer)
     byteBuffer.array()
   }
@@ -146,6 +150,7 @@ object TransactionLog {
     *
     * @return value payload bytes
     */
+  //note: 构造 txn 日志的 value 信息
   private[coordinator] def valueToBytes(txnMetadata: TxnTransitMetadata): Array[Byte] = {
     import ValueSchema._
     val value = new Struct(Current)
@@ -157,7 +162,7 @@ object TransactionLog {
     value.set(TxnStartTimestampField, txnMetadata.txnStartTimestamp)
 
     if (txnMetadata.txnState == Empty) {
-      if (txnMetadata.topicPartitions.nonEmpty)
+      if (txnMetadata.topicPartitions.nonEmpty) //note: txn 状态为 Empty，但是 partition 列表不为空，这里直接抛出异常
         throw new IllegalStateException(s"Transaction is not expected to have any partitions since its state is ${txnMetadata.txnState}: $txnMetadata")
 
       value.set(TxnPartitionsField, null)
@@ -176,7 +181,7 @@ object TransactionLog {
     }
 
     val byteBuffer = ByteBuffer.allocate(2 /* version */ + value.sizeOf)
-    byteBuffer.putShort(CurrentVersion)
+    byteBuffer.putShort(CurrentVersion) //note: 版本信息
     value.writeTo(byteBuffer)
     byteBuffer.array()
   }
