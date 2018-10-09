@@ -1829,12 +1829,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     val addOffsetsToTxnRequest = request.body[AddOffsetsToTxnRequest]
     val transactionalId = addOffsetsToTxnRequest.transactionalId
     val groupId = addOffsetsToTxnRequest.consumerGroupId
-    val offsetTopicPartition = new TopicPartition(GROUP_METADATA_TOPIC_NAME, groupCoordinator.partitionFor(groupId))
+    val offsetTopicPartition = new TopicPartition(GROUP_METADATA_TOPIC_NAME, groupCoordinator.partitionFor(groupId)) //note: consumer group 对应的 partition
 
-    if (!authorize(request.session, Write, Resource(TransactionalId, transactionalId, LITERAL)))
+    if (!authorize(request.session, Write, Resource(TransactionalId, transactionalId, LITERAL))) //note: txn.id 的写权限验证
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         new AddOffsetsToTxnResponse(requestThrottleMs, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED))
-    else if (!authorize(request.session, Read, Resource(Group, groupId, LITERAL)))
+    else if (!authorize(request.session, Read, Resource(Group, groupId, LITERAL))) //note: group 的读权限验证
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         new AddOffsetsToTxnResponse(requestThrottleMs, Errors.GROUP_AUTHORIZATION_FAILED))
     else {
@@ -1863,6 +1863,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     // authorize for the transactionalId and the consumer group. Note that we skip producerId authorization
     // since it is implied by transactionalId authorization
+    //note: 先验证对 txn.id 和 __consumer_offset 的权限信息
     if (!authorize(request.session, Write, Resource(TransactionalId, txnOffsetCommitRequest.transactionalId, LITERAL)))
       sendErrorResponseMaybeThrottle(request, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.exception)
     else if (!authorize(request.session, Read, Resource(Group, txnOffsetCommitRequest.consumerGroupId, LITERAL)))
@@ -1873,7 +1874,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       val authorizedTopicCommittedOffsets = mutable.Map[TopicPartition, TxnOffsetCommitRequest.CommittedOffset]()
 
       for ((topicPartition, commitedOffset) <- txnOffsetCommitRequest.offsets.asScala) {
-        if (!authorize(request.session, Read, Resource(Topic, topicPartition.topic, LITERAL)))
+        if (!authorize(request.session, Read, Resource(Topic, topicPartition.topic, LITERAL))) //note: 如果对 topic 没有 read 权限
           unauthorizedTopicErrors += topicPartition -> Errors.TOPIC_AUTHORIZATION_FAILED
         else if (!metadataCache.contains(topicPartition))
           nonExistingTopicErrors += topicPartition -> Errors.UNKNOWN_TOPIC_OR_PARTITION
@@ -1912,7 +1913,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   private def convertTxnOffsets(offsetsMap: immutable.Map[TopicPartition, TxnOffsetCommitRequest.CommittedOffset]): immutable.Map[TopicPartition, OffsetAndMetadata] = {
     val offsetRetention = groupCoordinator.offsetConfig.offsetsRetentionMs
     val currentTimestamp = time.milliseconds
-    val defaultExpireTimestamp = offsetRetention + currentTimestamp
+    val defaultExpireTimestamp = offsetRetention + currentTimestamp //note: 默认过期时间
     offsetsMap.map { case (topicPartition, partitionData) =>
       val metadata = if (partitionData.metadata == null) OffsetMetadata.NoMetadata else partitionData.metadata
       topicPartition -> new OffsetAndMetadata(

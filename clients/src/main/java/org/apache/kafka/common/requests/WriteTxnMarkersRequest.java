@@ -67,6 +67,7 @@ public class WriteTxnMarkersRequest extends AbstractRequest {
         return new Schema[]{WRITE_TXN_MARKERS_REQUEST_V0};
     }
 
+    //note: TxnMarker 的主要的内容
     public static class TxnMarkerEntry {
         private final long producerId;
         private final short producerEpoch;
@@ -158,6 +159,7 @@ public class WriteTxnMarkersRequest extends AbstractRequest {
         this.markers = markers;
     }
 
+    //note: 构造 marker 请求
     public WriteTxnMarkersRequest(Struct struct, short version) {
         super(version);
         List<TxnMarkerEntry> markers = new ArrayList<>();

@@ -179,6 +179,7 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
   private val members = new mutable.HashMap[String, MemberMetadata]
   private val offsets = new mutable.HashMap[TopicPartition, CommitRecordMetadataAndOffset]
   private val pendingOffsetCommits = new mutable.HashMap[TopicPartition, OffsetAndMetadata]
+  //note: 事务的 offset 信息先记录下来
   private val pendingTransactionalOffsetCommits = new mutable.HashMap[Long, mutable.Map[TopicPartition, CommitRecordMetadataAndOffset]]()
   private var receivedTransactionalOffsetCommits = false
   private var receivedConsumerOffsetCommits = false
@@ -321,7 +322,7 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
         throw new IllegalStateException("Cannot complete offset commit write without providing the metadata of the record " +
           "in the log.")
       if (!offsets.contains(topicPartition) || offsets(topicPartition).olderThan(offsetWithCommitRecordMetadata))
-        offsets.put(topicPartition, offsetWithCommitRecordMetadata)
+        offsets.put(topicPartition, offsetWithCommitRecordMetadata) //note: 更新 offset
     }
 
     pendingOffsetCommits.get(topicPartition) match {
@@ -340,11 +341,13 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
     }
   }
 
+  //note: 准备 commit offset
   def prepareOffsetCommit(offsets: Map[TopicPartition, OffsetAndMetadata]) {
     receivedConsumerOffsetCommits = true
     pendingOffsetCommits ++= offsets
   }
 
+  //note: 将 offset 信息更新到 pendingTransactionalOffsetCommits 中
   def prepareTxnOffsetCommit(producerId: Long, offsets: Map[TopicPartition, OffsetAndMetadata]) {
     trace(s"TxnOffsetCommit for producer $producerId and group $groupId with offsets $offsets is pending")
     receivedTransactionalOffsetCommits = true

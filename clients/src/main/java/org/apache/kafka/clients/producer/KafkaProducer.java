@@ -670,6 +670,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * @throws KafkaException if the producer has encountered a previous fatal or abortable error, or for any
      *         other unexpected error
      */
+    //note: commit 正在进行的事务操作，这个方法在真正发送 commit 之后将会 flush 所有未发送的数据
+    //note: 如果在发送中遇到任何一个不能修复的错误，这个方法抛出异常，事务也不会被提交，所有 send 必须成功，这个事务才能 commit 成功
     public void commitTransaction() throws ProducerFencedException {
         throwIfNoTransactionManager();
         TransactionalRequestResult result = transactionManager.beginCommit();
@@ -690,6 +692,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      *         transactional.id is not authorized. See the exception for more details
      * @throws KafkaException if the producer has encountered a previous fatal error or for any other unexpected error
      */
+    //note: 取消正在进行事务，任何没有 flush 的数据都会被丢弃
     public void abortTransaction() throws ProducerFencedException {
         throwIfNoTransactionManager();
         TransactionalRequestResult result = transactionManager.beginAbort();

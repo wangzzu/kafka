@@ -296,6 +296,7 @@ class GroupMetadataManager(brokerId: Int,
   /**
    * Store offsets by appending it to the replicated log and then inserting to cache
    */
+  //note: 同时支持事务情况下 producer 的 commit offset 及 consumer 的 commit offset
   def storeOffsets(group: GroupMetadata,
                    consumerId: String,
                    offsetMetadata: immutable.Map[TopicPartition, OffsetAndMetadata],
@@ -314,7 +315,7 @@ class GroupMetadataManager(brokerId: Int,
           s"should be avoided.")
     }
 
-    val isTxnOffsetCommit = producerId != RecordBatch.NO_PRODUCER_ID
+    val isTxnOffsetCommit = producerId != RecordBatch.NO_PRODUCER_ID //note: 事务性下的 commit offset
     // construct the message set to append
     if (filteredOffsetMetadata.isEmpty) {
       // compute the final error codes for the commit response

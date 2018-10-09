@@ -451,8 +451,9 @@ class GroupCoordinator(val brokerId: Int,
       case Some(error) => responseCallback(offsetMetadata.mapValues(_ => error))
       case None =>
         val group = groupManager.getGroup(groupId).getOrElse {
-          groupManager.addGroup(new GroupMetadata(groupId, initialState = Empty))
+          groupManager.addGroup(new GroupMetadata(groupId, initialState = Empty)) //note: 这里初始化时，GroupMetadata 的 state 会初始化为 Empty
         }
+        //note: 这里 commit 时，是没有设置 member.id 和 generation 信息的
         doCommitOffsets(group, NoMemberId, NoGeneration, producerId, producerEpoch, offsetMetadata, responseCallback)
     }
   }
@@ -502,13 +503,14 @@ class GroupCoordinator(val brokerId: Int,
     group.inLock {
       if (group.is(Dead)) {
         responseCallback(offsetMetadata.mapValues(_ => Errors.UNKNOWN_MEMBER_ID))
-      } else if ((generationId < 0 && group.is(Empty)) || (producerId != NO_PRODUCER_ID)) {
+      } else if ((generationId < 0 && group.is(Empty)) || (producerId != NO_PRODUCER_ID)) { //note: 这个是 producer 提交的，也就是在事务情况下的
+        //note: 需要保证事务情况下使用的 group.id 与其他的情况下的不一致，否者进入不了这一步
         // The group is only using Kafka to store offsets.
         // Also, for transactional offset commits we don't need to validate group membership and the generation.
         groupManager.storeOffsets(group, memberId, offsetMetadata, responseCallback, producerId, producerEpoch)
       } else if (group.is(CompletingRebalance)) {
         responseCallback(offsetMetadata.mapValues(_ => Errors.REBALANCE_IN_PROGRESS))
-      } else if (!group.has(memberId)) {
+      } else if (!group.has(memberId)) { //note: 如果 group.id 共用，事务情况下，可能会返回这个异常
         responseCallback(offsetMetadata.mapValues(_ => Errors.UNKNOWN_MEMBER_ID))
       } else if (generationId != group.generationId) {
         responseCallback(offsetMetadata.mapValues(_ => Errors.ILLEGAL_GENERATION))

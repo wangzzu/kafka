@@ -229,6 +229,7 @@ public class TransactionManager {
         transitionTo(State.IN_TRANSACTION);
     }
 
+    //note: 开始 commit，转移本地本地保存的状态以及发送相应的请求
     public synchronized TransactionalRequestResult beginCommit() {
         ensureTransactional();
         maybeFailWithError();
@@ -247,6 +248,7 @@ public class TransactionManager {
         return beginCompletingTransaction(TransactionResult.ABORT);
     }
 
+    //note: 发送 EndTxnRequest 请求，添加到 pending 队列中
     private TransactionalRequestResult beginCompletingTransaction(TransactionResult transactionResult) {
         if (!newPartitionsInTransaction.isEmpty())
             enqueueRequest(addPartitionsToTransactionHandler());
@@ -274,6 +276,7 @@ public class TransactionManager {
         return handler.result;
     }
 
+    //note: 将 tp 添加到 newPartitionsInTransaction 中，记录当前进行事务操作的 tp
     public synchronized void maybeAddPartitionToTransaction(TopicPartition topicPartition) {
         failIfNotReadyForSend();
 
@@ -839,6 +842,7 @@ public class TransactionManager {
         enqueueRequest(new FindCoordinatorHandler(builder));
     }
 
+    //note: 事务操作完成，commit 或者 abort 请求发送成功，状态转移及清空相应的缓存
     private synchronized void completeTransaction() {
         transitionTo(State.READY);
         lastError = null;
@@ -856,6 +860,7 @@ public class TransactionManager {
         return new AddPartitionsToTxnHandler(builder);
     }
 
+    //note: 这里是构造 TxnOffsetCommit 请求
     private TxnOffsetCommitHandler txnOffsetCommitHandler(TransactionalRequestResult result,
                                                           Map<TopicPartition, OffsetAndMetadata> offsets,
                                                           String consumerGroupId) {
