@@ -98,6 +98,7 @@ final class InFlightRequests {
      * @param node Node in question
      * @return true iff we have no requests still being sent to the given node
      */
+    //note: 即使设置了 maxInFlightRequestsPerConnection时,也需要保证第一个 Request 已经发送完成了,
     public boolean canSendMore(String node) {
         Deque<NetworkClient.InFlightRequest> queue = requests.get(node);
         return queue == null || queue.isEmpty() ||
