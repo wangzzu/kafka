@@ -315,7 +315,7 @@ class TransactionCoordinator(brokerId: Int,
           val txnMetadata = epochAndTxnMetadata.transactionMetadata
           val coordinatorEpoch = epochAndTxnMetadata.coordinatorEpoch
 
-          txnMetadata.inLock { //note: 这个加锁是 txnMedadata 的级别，也就是事务级别
+          txnMetadata.inLock { //note: 这个加锁是 txn Metadata 的级别，也就是事务级别
             if (txnMetadata.producerId != producerId)
               Left(Errors.INVALID_PRODUCER_ID_MAPPING)
             else if (producerEpoch < txnMetadata.producerEpoch)
