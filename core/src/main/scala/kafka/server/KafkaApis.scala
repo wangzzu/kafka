@@ -1634,7 +1634,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   //note: 事务完成的处理
   def handleEndTxnRequest(request: RequestChannel.Request): Unit = {
-    ensureInterBrokerVersion(KAFKA_0_11_0_IV0)
+    ensureInterBrokerVersion(KAFKA_0_11_0_IV0) //note: 版本必须大于等于 0.11.0
     val endTxnRequest = request.body[EndTxnRequest]
     val transactionalId = endTxnRequest.transactionalId
 
@@ -1654,7 +1654,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         endTxnRequest.producerEpoch,
         endTxnRequest.command,
         sendResponseCallback)
-    } else
+    } else //note: 如果对 txn.id 没有读权限
       sendResponseMaybeThrottle(request, requestThrottleMs =>
         new EndTxnResponse(requestThrottleMs, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED))
   }
