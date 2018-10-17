@@ -691,10 +691,11 @@ public class NetworkClient implements KafkaClient {
      * @param now The current time
      */
     private void handleTimedOutRequests(List<ClientResponse> responses, long now) {
+        //note: 超时可能导致 request 被清除,但是如果后来 response 返回怎么办?
         List<String> nodeIds = this.inFlightRequests.nodesWithTimedOutRequests(now);
         for (String nodeId : nodeIds) {
             // close connection to the node
-            this.selector.close(nodeId);
+            this.selector.close(nodeId); //note: 如果超时的话,直接 close 对应的 channel
             log.debug("Disconnecting from node {} due to request timeout.", nodeId);
             processDisconnection(responses, nodeId, now, ChannelState.LOCAL_CLOSE);
         }

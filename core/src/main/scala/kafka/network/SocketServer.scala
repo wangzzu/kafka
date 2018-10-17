@@ -696,7 +696,7 @@ private[kafka] class Processor(val id: Int,
             val req = new RequestChannel.Request(processor = id, context = context,
               startTimeNanos = time.nanoseconds, memoryPool, receive.payload, requestChannel.metrics)
             requestChannel.sendRequest(req)
-            selector.mute(connectionId)
+            selector.mute(connectionId) //note: mute the channel
             handleChannelMuteEvent(connectionId, ChannelMuteEvent.REQUEST_RECEIVED)
           case None =>
             // This should never happen since completed receives are processed immediately after `poll()`

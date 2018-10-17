@@ -557,7 +557,7 @@ public class Selector implements Selectable, AutoCloseable {
         if (channel.ready() && (key.isReadable() || channel.hasBytesBuffered()) && !hasStagedReceive(channel)
             && !explicitlyMutedChannels.contains(channel)) {
             NetworkReceive networkReceive;
-            while ((networkReceive = channel.read()) != null) {
+            while ((networkReceive = channel.read()) != null) { //note: 这里会拉取到所有的 receive
                 madeReadProgressLastPoll = true;
                 addToStagedReceives(channel, networkReceive);
             }
@@ -748,7 +748,7 @@ public class Selector implements Selectable, AutoCloseable {
         try {
             immediatelyConnectedKeys.remove(key);
             keysWithBufferedRead.remove(key);
-            channel.close();
+            channel.close(); //note: 关闭 channel
         } catch (IOException e) {
             log.error("Exception closing connection to node {}:", channel.id(), e);
         } finally {
@@ -756,7 +756,7 @@ public class Selector implements Selectable, AutoCloseable {
             key.attach(null);
         }
         this.sensors.connectionClosed.record();
-        this.stagedReceives.remove(channel);
+        this.stagedReceives.remove(channel); //note: close 时,清除这个 channel 对应的 response
         this.explicitlyMutedChannels.remove(channel);
         if (notifyDisconnect)
             this.disconnected.put(channel.id(), channel.state());
@@ -833,6 +833,7 @@ public class Selector implements Selectable, AutoCloseable {
      * adds a receive to staged receives
      */
     private void addToStagedReceives(KafkaChannel channel, NetworkReceive receive) {
+        //note: 将 channel 添加到 stagedReceives 集合中,保证每次该 channel 只有一个 request 在处理
         if (!stagedReceives.containsKey(channel))
             stagedReceives.put(channel, new ArrayDeque<NetworkReceive>());
 
@@ -849,9 +850,9 @@ public class Selector implements Selectable, AutoCloseable {
             while (iter.hasNext()) {
                 Map.Entry<KafkaChannel, Deque<NetworkReceive>> entry = iter.next();
                 KafkaChannel channel = entry.getKey();
-                if (!explicitlyMutedChannels.contains(channel)) {
+                if (!explicitlyMutedChannels.contains(channel)) { //note: 只有这个 channel 没有被 mute 时才会处理
                     Deque<NetworkReceive> deque = entry.getValue();
-                    addToCompletedReceives(channel, deque);
+                    addToCompletedReceives(channel, deque);  //note: 每次只添加一个 receive
                     if (deque.isEmpty())
                         iter.remove();
                 }
