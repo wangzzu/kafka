@@ -91,7 +91,7 @@ object TransactionMarkerChannelManager {
 
 }
 
-//note: TxnMarker queue，保留了相关的信息
+//note: 每个 node 对应的 TxnMarker queue，保留了相关的信息
 class TxnMarkerQueue(@volatile var destination: Node) {
 
   // keep track of the requests per txn topic partition so we can easily clear the queue
@@ -130,8 +130,10 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
 
   private val interBrokerListenerName: ListenerName = config.interBrokerListenerName
 
+  //note: Broker 与其 TxnMarkerQueue 对应的 map
   private val markersQueuePerBroker: concurrent.Map[Int, TxnMarkerQueue] = new ConcurrentHashMap[Int, TxnMarkerQueue]().asScala
 
+  //note: 如果 Broker 为 noNode,这种类型的 Marker 都添加到 markersQueueForUnknownBroker 中
   private val markersQueueForUnknownBroker = new TxnMarkerQueue(Node.noNode)
 
   private val txnLogAppendRetryQueue = new LinkedBlockingQueue[TxnLogAppend]()
@@ -152,7 +154,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
     }
   )
 
-  override def generateRequests() = drainQueuedTransactionMarkers()
+  override def generateRequests() = drainQueuedTransactionMarkers() //note: 获取需要发送的请求列表
 
   override def shutdown(): Unit = {
     super.shutdown()
@@ -174,7 +176,6 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
 
     // we do not synchronize on the update of the broker node with the enqueuing,
     // since even if there is a race condition we will just retry
-    //note: 这里没有加锁的原因是，如果有竞争，这里会进行重试
     val brokerRequestQueue = CoreUtils.atomicGetOrUpdate(markersQueuePerBroker, brokerId,
         new TxnMarkerQueue(broker))
     brokerRequestQueue.destination = broker
@@ -183,6 +184,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
     trace(s"Added marker ${txnIdAndMarker.txnMarkerEntry} for transactional id ${txnIdAndMarker.txnId} to destination broker $brokerId")
   }
 
+  //note: 将 txnLogAppendRetryQueue 中日志追加到事务日志中（txnLogAppendRetryQueue 保留的都是需要重试的日志信息）
   def retryLogAppends(): Unit = {
     val txnLogAppendRetries: java.util.List[TxnLogAppend] = new util.ArrayList[TxnLogAppend]()
     txnLogAppendRetryQueue.drainTo(txnLogAppendRetries)
@@ -193,7 +195,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
   }
 
   private[transaction] def drainQueuedTransactionMarkers(): Iterable[RequestAndCompletionHandler] = {
-    retryLogAppends()
+    retryLogAppends() //note: 重试添加失败的事务日志
     val txnIdAndMarkerEntries: java.util.List[TxnIdAndMarkerEntry] = new util.ArrayList[TxnIdAndMarkerEntry]()
     markersQueueForUnknownBroker.forEachTxnTopicPartition { case (_, queue) =>
       queue.drainTo(txnIdAndMarkerEntries)
@@ -223,6 +225,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
     }
   }
 
+  //note: 添加一个等待发送的 TxnMarker
   def addTxnMarkersToSend(transactionalId: String,
                           coordinatorEpoch: Int,
                           txnResult: TransactionResult,
@@ -274,10 +277,11 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
     //note:
     txnMarkerPurgatory.tryCompleteElseWatch(delayedTxnMarker, Seq(transactionalId))
 
-    //note:
+    //note: 将 Marker 添加对应的 Broker 的队列中
     addTxnMarkersToBrokerQueue(transactionalId, txnMetadata.producerId, txnMetadata.producerEpoch, txnResult, coordinatorEpoch, txnMetadata.topicPartitions.toSet)
   }
 
+  //note: 追加事务日志信息
   private def tryAppendToLog(txnLogAppend: TxnLogAppend) = {
     // try to append to the transaction log
     def appendCallback(error: Errors): Unit =
@@ -293,7 +297,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
             s"${Errors.NOT_ENOUGH_REPLICAS_AFTER_APPEND} and ${Errors.REQUEST_TIMED_OUT}; retry appending")
 
           // enqueue for retry
-          txnLogAppendRetryQueue.add(txnLogAppend)
+          txnLogAppendRetryQueue.add(txnLogAppend) //note: 重试操作
 
         case Errors.COORDINATOR_LOAD_IN_PROGRESS =>
           info(s"Coordinator is loading the partition ${txnStateManager.partitionFor(txnLogAppend.transactionalId)} and hence cannot complete append of $txnLogAppend; " +
@@ -309,11 +313,12 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
       _ == Errors.COORDINATOR_NOT_AVAILABLE)
   }
 
-  //note:
+  //note: 将 Marker 添加到 Broker 对应的队列中
   def addTxnMarkersToBrokerQueue(transactionalId: String, producerId: Long, producerEpoch: Short,
                                  result: TransactionResult, coordinatorEpoch: Int,
                                  topicPartitions: immutable.Set[TopicPartition]): Unit = {
-    val txnTopicPartition = txnStateManager.partitionFor(transactionalId)
+    val txnTopicPartition = txnStateManager.partitionFor(transactionalId) //note: 事务 topic 对应的 partition
+    //note: 把 partition 与 leader 的信息聚合成 partitionsByDestination map
     val partitionsByDestination: immutable.Map[Option[Node], immutable.Set[TopicPartition]] = topicPartitions.groupBy { topicPartition: TopicPartition =>
       metadataCache.getPartitionLeaderEndpoint(topicPartition.topic, topicPartition.partition, interBrokerListenerName)
     }
@@ -321,28 +326,30 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
     for ((broker: Option[Node], topicPartitions: immutable.Set[TopicPartition]) <- partitionsByDestination) {
       broker match {
         case Some(brokerNode) =>
+          //note: 创建一个 TxnMarkerEntry 和 TxnIdAndMarkerEntry 对象
           val marker = new TxnMarkerEntry(producerId, producerEpoch, coordinatorEpoch, result, topicPartitions.toList.asJava)
           val txnIdAndMarker = TxnIdAndMarkerEntry(transactionalId, marker)
 
           if (brokerNode == Node.noNode) {
             // if the leader of the partition is known but node not available, put it into an unknown broker queue
-            // and let the sender thread to look for its broker and migrate them later
-            markersQueueForUnknownBroker.addMarkers(txnTopicPartition, txnIdAndMarker)
+            // and let the sender thread to look for its broker and migrate them later                                                                                                    
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+            markersQueueForUnknownBroker.addMarkers(txnTopicPartition, txnIdAndMarker) //note: 如果 leader 是 noNode (暂时不可用),直接添加到 markersQueueForUnknownBroker 中
           } else {
-            addMarkersForBroker(brokerNode, txnTopicPartition, txnIdAndMarker)
+            addMarkersForBroker(brokerNode, txnTopicPartition, txnIdAndMarker) //note: 将 txnIdAndMarker 添加 node 对应的 TxnMarkerQueue 中
           }
 
-        case None =>
+        case None => //note: 缓存中没有这个 leader 的信息
           txnStateManager.getTransactionState(transactionalId) match {
             case Left(error) =>
               info(s"Encountered $error trying to fetch transaction metadata for $transactionalId with coordinator epoch $coordinatorEpoch; cancel sending markers to its partition leaders")
-              txnMarkerPurgatory.cancelForKey(transactionalId)
+              txnMarkerPurgatory.cancelForKey(transactionalId) //note: 有异常时,取消这个延迟任务
 
             case Right(Some(epochAndMetadata)) =>
-              if (epochAndMetadata.coordinatorEpoch != coordinatorEpoch) {
+              if (epochAndMetadata.coordinatorEpoch != coordinatorEpoch) { //note: coordinatorEpoch 不同时,同时会取消这个延迟调度任务
                 info(s"The cached metadata has changed to $epochAndMetadata (old coordinator epoch is $coordinatorEpoch) since preparing to send markers; cancel sending markers to its partition leaders")
                 txnMarkerPurgatory.cancelForKey(transactionalId)
-              } else {
+              } else {  //note: topic 可能被删除,从事务的 meta 中删除这个 partition
                 // if the leader of the partition is unknown, skip sending the txn marker since
                 // the partition is likely to be deleted already
                 info(s"Couldn't find leader endpoint for partitions $topicPartitions while trying to send transaction markers for " +

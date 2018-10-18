@@ -32,6 +32,7 @@ import scala.collection.JavaConverters._
 /**
  *  Class for inter-broker send thread that utilize a non-blocking network client.
  */
+//note: 2.0 后新抽象出来的一个类,用于向其他 broker 发送请求,并维护对应的请求队列
 abstract class InterBrokerSendThread(name: String,
                                      networkClient: NetworkClient,
                                      time: Time,
@@ -54,6 +55,7 @@ abstract class InterBrokerSendThread(name: String,
   override def doWork() {
     var now = time.milliseconds()
 
+    //note: 1 将请求添加到未发送的请求集合中
     generateRequests().foreach { request =>
       val completionHandler = request.handler
       unsentRequests.put(request.destination,
@@ -62,12 +64,12 @@ abstract class InterBrokerSendThread(name: String,
     }
 
     try {
-      val timeout = sendRequests(now)
-      networkClient.poll(timeout, now)
+      val timeout = sendRequests(now) //note: 发送相应的请求
+      networkClient.poll(timeout, now) //note: 调用 NetworkClient,做实际的读写操作
       now = time.milliseconds()
-      checkDisconnects(now)
+      checkDisconnects(now) //note: 检查是否有连接断开,如果是认证失败,直接返回异常
       failExpiredRequests(now)
-      unsentRequests.clean()
+      unsentRequests.clean() //note: 每次循环都会清空当前的 unsentRequests
     } catch {
       case e: FatalExitError => throw e
       case t: Throwable =>
@@ -80,6 +82,7 @@ abstract class InterBrokerSendThread(name: String,
     }
   }
 
+  //note: 发送请求: 这里会遍历 unsentRequests 中所有的 node,发送相应的请求
   private def sendRequests(now: Long): Long = {
     var pollTimeout = Long.MaxValue
     for (node <- unsentRequests.nodes.asScala) {
@@ -105,10 +108,10 @@ abstract class InterBrokerSendThread(name: String,
     while (iterator.hasNext) {
       val entry = iterator.next
       val (node, requests) = (entry.getKey, entry.getValue)
-      if (!requests.isEmpty && networkClient.connectionFailed(node)) {
+      if (!requests.isEmpty && networkClient.connectionFailed(node)) { //note: 如果连接失败（connectionStates 中有这个 node 的记录）
         iterator.remove()
         for (request <- requests.asScala) {
-          val authenticationException = networkClient.authenticationException(node)
+          val authenticationException = networkClient.authenticationException(node) //note: 如果有认证失败,直接返回异常
           if (authenticationException != null)
             error(s"Failed to send the following request due to authentication error: $request")
           completeWithDisconnect(request, now, authenticationException)
@@ -117,6 +120,7 @@ abstract class InterBrokerSendThread(name: String,
     }
   }
 
+  //note: 对于超时的请求,直接返回异常
   private def failExpiredRequests(now: Long): Unit = {
     // clear all expired unsent requests
     val timedOutRequests = unsentRequests.removeAllTimedOut(now)
@@ -126,6 +130,7 @@ abstract class InterBrokerSendThread(name: String,
     }
   }
 
+  //note: 完成当前请求的处理,返回 AuthenticationException 异常,又发送方做相应的处理
   def completeWithDisconnect(request: ClientRequest,
                              now: Long,
                              authenticationException: AuthenticationException): Unit = {
@@ -140,7 +145,7 @@ abstract class InterBrokerSendThread(name: String,
 
 case class RequestAndCompletionHandler(destination: Node, request: AbstractRequest.Builder[_ <: AbstractRequest],
                                        handler: RequestCompletionHandler)
-
+//note: 保留未发生的请求
 private class UnsentRequests {
   private val unsent = new HashMap[Node, ArrayDeque[ClientRequest]]
 
@@ -157,7 +162,7 @@ private class UnsentRequests {
     val expiredRequests = new ArrayList[ClientRequest]
     for (requests <- unsent.values.asScala) {
       val requestIterator = requests.iterator
-      var foundExpiredRequest = false
+      var foundExpiredRequest = false //note: 当前 node 对应的 request 只要有一个请求出现超时,这个值就会设置为 true,并且退出下面的 while 循环
       while (requestIterator.hasNext && !foundExpiredRequest) {
         val request = requestIterator.next
         val elapsedMs = Math.max(0, now - request.createdTimeMs)
