@@ -37,6 +37,7 @@ import java.util.concurrent.{BlockingQueue, ConcurrentHashMap, LinkedBlockingQue
 import collection.JavaConverters._
 import scala.collection.{concurrent, immutable}
 
+//note: 向其他 Server 发送 Marker
 object TransactionMarkerChannelManager {
   def apply(config: KafkaConfig,
             metrics: Metrics,

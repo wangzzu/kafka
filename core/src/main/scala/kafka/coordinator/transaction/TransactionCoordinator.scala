@@ -515,7 +515,7 @@ class TransactionCoordinator(brokerId: Int,
     )
     if (enableTransactionalIdExpiration) //note: 默认是允许 txn.id 超时的
       txnManager.enableTransactionalIdExpiration()
-    txnMarkerChannelManager.start()
+    txnMarkerChannelManager.start() //note: 启动发送 WriteTxnMarkersRequest 线程
     isActive.set(true)
 
     info("Startup complete.")
