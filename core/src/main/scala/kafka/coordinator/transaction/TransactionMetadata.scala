@@ -124,6 +124,7 @@ private[transaction] object TransactionMetadata {
 }
 
 // this is a immutable object representing the target transition of the transaction metadata
+//note: 事务将要进行转移的目标状态的 meta
 private[transaction] case class TxnTransitMetadata(producerId: Long,
                                                    producerEpoch: Short,
                                                    txnTimeoutMs: Int,
@@ -233,6 +234,7 @@ private[transaction] class TransactionMetadata(val transactionalId: String,
       updateTimestamp)
   }
 
+  //note: 事务完成,改变其状态
   def prepareComplete(updateTimestamp: Long): TxnTransitMetadata = {
     val newState = if (state == PrepareCommit) CompleteCommit else CompleteAbort
     prepareTransitionTo(newState, producerId, producerEpoch, txnTimeoutMs, Set.empty[TopicPartition], txnStartTimestamp,
