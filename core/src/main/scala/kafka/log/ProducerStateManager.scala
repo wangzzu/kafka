@@ -44,17 +44,21 @@ private[log] object ValidationType {
     * This indicates no validation should be performed on the incoming append. This is the case for all appends on
     * a replica, as well as appends when the producer state is being built from the log.
     */
+  //note: 在进行 append 时不做任何校验;
+  //note: 主要用于所有的副本同步和 producer 状态从日志恢复时
   case object None extends ValidationType
 
   /**
     * We only validate the epoch (and not the sequence numbers) for offset commit requests coming from the transactional
     * producer. These appends will not have sequence numbers, so we can't validate them.
     */
+  //note: 对于来 txn producer 的 offset commit,只验证 epoch（不验证 seq id 信息,因为没有 seq id 信息）
   case object EpochOnly extends ValidationType
 
   /**
     * Perform the full validation. This should be used fo regular produce requests coming to the leader.
     */
+  //note: 做全部的验证,适用于向 leader 的正常 produce 请求
   case object Full extends ValidationType
 }
 
@@ -95,7 +99,7 @@ private[log] class ProducerStateEntry(val producerId: Long,
                                       val batchMetadata: mutable.Queue[BatchMetadata],
                                       var producerEpoch: Short,
                                       var coordinatorEpoch: Int,
-                                      var currentTxnFirstOffset: Option[Long]) {
+                                      var currentTxnFirstOffset: Option[Long]) { //note: currentTxnFirstOffset 默认为 None
 
   def firstSeq: Int = if (isEmpty) RecordBatch.NO_SEQUENCE else batchMetadata.front.firstSeq
 
@@ -112,7 +116,7 @@ private[log] class ProducerStateEntry(val producerId: Long,
   def isEmpty: Boolean = batchMetadata.isEmpty
 
   def addBatch(producerEpoch: Short, lastSeq: Int, lastOffset: Long, offsetDelta: Int, timestamp: Long): Unit = {
-    maybeUpdateEpoch(producerEpoch)
+    maybeUpdateEpoch(producerEpoch) //note: 更新相应的 batch
     addBatchMetadata(BatchMetadata(lastSeq, lastOffset, offsetDelta, timestamp))
   }
 
@@ -213,9 +217,9 @@ private[log] class ProducerAppendInfo(val producerId: Long,
     }
   }
 
-  //note: 检查 seq
+  //note: 检查 seq id
   private def checkSequence(producerEpoch: Short, appendFirstSeq: Int): Unit = {
-    if (producerEpoch != updatedEntry.producerEpoch) {
+    if (producerEpoch != updatedEntry.producerEpoch) { //note: epoch 不同时
       if (appendFirstSeq != 0) {
         if (updatedEntry.producerEpoch != RecordBatch.NO_PRODUCER_EPOCH) {
           throw new OutOfOrderSequenceException(s"Invalid sequence number for new epoch: $producerEpoch " +
@@ -234,10 +238,12 @@ private[log] class ProducerAppendInfo(val producerId: Long,
         RecordBatch.NO_SEQUENCE
 
       if (currentLastSeq == RecordBatch.NO_SEQUENCE && appendFirstSeq != 0) {
+        //note: 此时期望的 seq id 是从 0 开始,因为 currentLastSeq 是 -1,也就意味着这个 pid 是新的
         // the epoch was bumped by a control record, so we expect the sequence number to be reset
         throw new OutOfOrderSequenceException(s"Out of order sequence number for producerId $producerId: found $appendFirstSeq " +
           s"(incoming seq. number), but expected 0")
       } else if (!inSequence(currentLastSeq, appendFirstSeq)) {
+        //note: 判断是否连续
         throw new OutOfOrderSequenceException(s"Out of order sequence number for producerId $producerId: $appendFirstSeq " +
           s"(incoming seq. number), $currentLastSeq (current end sequence number)")
       }
@@ -270,8 +276,8 @@ private[log] class ProducerAppendInfo(val producerId: Long,
     maybeValidateAppend(epoch, firstSeq) //note：先检查 seq id，有问题的话抛出异常
     updatedEntry.addBatch(epoch, lastSeq, lastOffset, lastSeq - firstSeq, lastTimestamp) //note：记录相应的 batch meta
 
-    updatedEntry.currentTxnFirstOffset match {
-      case Some(_) if !isTransactional =>
+    updatedEntry.currentTxnFirstOffset match { //note：事务性情况下才有这个值
+      case Some(_) if !isTransactional => //note：非事务性的情况下,对应的事务性变量有相应的记录
         // Received a non-transactional message while a transaction is active
         throw new InvalidTxnStateException(s"Expected transactional write from producer $producerId")
 
@@ -478,6 +484,9 @@ object ProducerStateManager {
  * been deleted.
  */
 //note: 维护 pid 与最后成功写入的 entries 的 meta 信息（epoch、seq id、last offset 等）
+//note: the seq number 是最后一条成功写入到这个 partition 的数据,epoch 用于阻止 zombie producer
+//note: 只要 pid 是包含在 map 中,相关的 producer 就可以继续写数据（但是 pid 是有过期机制的, 如果最近没有使用或者最后写入的数据被删除）
+//note: 对于压缩的 topic,log cleaner 会确保永远保留最后一条数据,除非 topic 被删除
 @nonthreadsafe
 class ProducerStateManager(val topicPartition: TopicPartition,
                            @volatile var logDir: File,
@@ -582,6 +591,7 @@ class ProducerStateManager(val topicPartition: TopicPartition,
   /**
    * Expire any producer ids which have been idle longer than the configured maximum expiration timeout.
    */
+  //note: 定期清除过期的 pid 记录
   def removeExpiredProducers(currentTimeMs: Long) {
     producers.retain { case (_, lastEntry) =>
       !isProducerExpired(currentTimeMs, lastEntry)
@@ -622,7 +632,7 @@ class ProducerStateManager(val topicPartition: TopicPartition,
         ValidationType.Full
 
     val currentEntry = lastEntry(producerId).getOrElse(ProducerStateEntry.empty(producerId))
-    new ProducerAppendInfo(producerId, currentEntry, validationToPerform)
+    new ProducerAppendInfo(producerId, currentEntry, validationToPerform) //note: 获取当前 pid 对应的 ProducerAppendInfo
   }
 
   /**
@@ -648,6 +658,7 @@ class ProducerStateManager(val topicPartition: TopicPartition,
     }
   }
 
+  //note: 更新最新的 offset
   def updateMapEndOffset(lastOffset: Long): Unit = {
     lastMapOffset = lastOffset
   }
@@ -747,6 +758,7 @@ class ProducerStateManager(val topicPartition: TopicPartition,
   /**
    * Complete the transaction and return the last stable offset.
    */
+  //note: 事务完成,并更新 LSO
   def completeTxn(completedTxn: CompletedTxn): Long = {
     val txnMetadata = ongoingTxns.remove(completedTxn.firstOffset)
     if (txnMetadata == null)

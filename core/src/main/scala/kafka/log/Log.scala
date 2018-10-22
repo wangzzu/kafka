@@ -248,7 +248,7 @@ class Log(@volatile var dir: File,
 
     // Any segment loading or recovery code must not use producerStateManager, so that we can build the full state here
     // from scratch.
-    if (!producerStateManager.isEmpty)
+    if (!producerStateManager.isEmpty) //note: log 初始化时,要求 ProducerStateManager 为 null
       throw new IllegalStateException("Producer state must be empty during log initialization")
     loadProducerState(logEndOffset, reloadFromCleanShutdown = hasCleanShutdownFile)
 
@@ -852,7 +852,7 @@ class Log(@volatile var dir: File,
           appendInfo.lastOffset = duplicate.lastOffset
           appendInfo.logAppendTime = duplicate.timestamp
           appendInfo.logStartOffset = logStartOffset
-          return appendInfo
+          return appendInfo //note: 如果验证数据重复了,这里直接返回
         }
 
         // maybe roll the log if this segment is full
@@ -869,20 +869,21 @@ class Log(@volatile var dir: File,
           records = validRecords)
 
         // update the producer state
-        for ((_, producerAppendInfo) <- updatedProducers) {
+        for ((_, producerAppendInfo) <- updatedProducers) { //note: 更新相应 producer 的状态
           producerAppendInfo.maybeCacheTxnFirstOffsetMetadata(logOffsetMetadata)
           producerStateManager.update(producerAppendInfo)
         }
 
         // update the transaction index with the true last stable offset. The last offset visible
         // to consumers using READ_COMMITTED will be limited by this value and the high watermark.
-        for (completedTxn <- completedTxns) {
+        for (completedTxn <- completedTxns) { //note: 更新 LSO（last stable offset）,事务性时需要（幂等性时, completedTxns 为空）
           val lastStableOffset = producerStateManager.completeTxn(completedTxn)
           segment.updateTxnIndex(completedTxn, lastStableOffset)
         }
 
         // always update the last producer id map offset so that the snapshot reflects the current offset
         // even if there isn't any idempotent data being written
+        //note: 即使没有设置 幂等性, 这里也会更新一下,记录一个当前副本当前 最大 offset 信息
         producerStateManager.updateMapEndOffset(appendInfo.lastOffset + 1)
 
         // increment the log end offset
@@ -954,7 +955,7 @@ class Log(@volatile var dir: File,
   (mutable.Map[Long, ProducerAppendInfo], List[CompletedTxn], Option[BatchMetadata]) = {
     val updatedProducers = mutable.Map.empty[Long, ProducerAppendInfo]
     val completedTxns = ListBuffer.empty[CompletedTxn]
-    for (batch <- records.batches.asScala if batch.hasProducerId) { //note: 有 pid 时
+    for (batch <- records.batches.asScala if batch.hasProducerId) { //note: 有 pid 时,才会做相应的判断
       val maybeLastEntry = producerStateManager.lastEntry(batch.producerId)
 
       // if this is a client produce request, there will be up to 5 batches which could have been duplicated.
@@ -1058,12 +1059,13 @@ class Log(@volatile var dir: File,
       RecordConversionStats.EMPTY, sourceCodec, targetCodec, shallowMessageCount, validBytesCount, monotonic, lastOffsetOfFirstBatch)
   }
 
+  //note: 更新相应的 metadata 信息
   private def updateProducers(batch: RecordBatch,
                               producers: mutable.Map[Long, ProducerAppendInfo],
                               isFromClient: Boolean): Option[CompletedTxn] = {
     val producerId = batch.producerId
     val appendInfo = producers.getOrElseUpdate(producerId, producerStateManager.prepareUpdate(producerId, isFromClient))
-    appendInfo.append(batch) //note: 记录一下这个 batch 的信息
+    appendInfo.append(batch) //note: 记录一下这个 batch 的信息, 非 TXN Marker 时返回 None
   }
 
   /**
