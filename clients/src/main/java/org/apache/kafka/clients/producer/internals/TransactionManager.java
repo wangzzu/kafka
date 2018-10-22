@@ -84,7 +84,7 @@ public class TransactionManager {
     // successfully (indicating that the expired batch actually made it to the broker). If we don't get any successful
     // responses for the partition once the inflight request count falls to zero, we reset the producer id and
     // consequently clear this data structure as well.
-    //note: 如果一个 partition 的 batch 在至少发送一次后在本地过期，那么这个 partition 将会被认为有一个未解决的状态
+    //note: 如果一个 partition 的 batch 在至少发送一次后在本地过期（超过重试次数还没成功），那么这个 partition 将会被认为有一个未解决的状态
     //note: 在这个 unresolved state 被解决之前，将不会再往这个 partition 分配更多的 sequence numbers
     //note: 如果当 in-flight request 数变成0时，这个 partition 还没有收到任何成功的响应，那么我们将会重置 producer id，并且清空数据
     private final Set<TopicPartition> partitionsWithUnresolvedSequences;
@@ -107,7 +107,7 @@ public class TransactionManager {
     private final PriorityQueue<TxnRequestHandler> pendingRequests;
     private final Set<TopicPartition> newPartitionsInTransaction;
     private final Set<TopicPartition> pendingPartitionsInTransaction;
-    private final Set<TopicPartition> partitionsInTransaction;
+    private final Set<TopicPartition> partitionsInTransaction; //note: 事务性操作的 partition 列表
     private final Map<TopicPartition, CommittedOffset> pendingTxnOffsetCommits;
 
     // This is used by the TxnRequestHandlers to control how long to back off before a given request is retried.
@@ -123,7 +123,7 @@ public class TransactionManager {
     private Node transactionCoordinator;
     private Node consumerGroupCoordinator;
 
-    private volatile State currentState = State.UNINITIALIZED;
+    private volatile State currentState = State.UNINITIALIZED; //note: 事务当前的状态
     private volatile RuntimeException lastError = null;
     private volatile ProducerIdAndEpoch producerIdAndEpoch;
     private volatile boolean transactionStarted = false;
@@ -434,6 +434,7 @@ public class TransactionManager {
         return currentSequenceNumber;
     }
 
+    //note: 计算这个 topic-partition 的下一个 seq id
     synchronized void incrementSequenceNumber(TopicPartition topicPartition, int increment) {
         Integer currentSequenceNumber = nextSequence.get(topicPartition);
         if (currentSequenceNumber == null)
@@ -443,6 +444,7 @@ public class TransactionManager {
         nextSequence.put(topicPartition, currentSequenceNumber);
     }
 
+    //note: 将 batch 添加到 inflightBatchesBySequence 记录中
     synchronized void addInFlightBatch(ProducerBatch batch) {
         if (!batch.hasSequence())
             throw new IllegalStateException("Can't track batch for partition " + batch.topicPartition + " when sequence is not set.");
@@ -464,6 +466,7 @@ public class TransactionManager {
      *         If there are no inflight requests being tracked for this partition, this method will return
      *         RecordBatch.NO_SEQUENCE.
      */
+    //note: 对于指定的 partition，返回 in-flight 中的第一个请求的 base-sequence
     synchronized int firstInFlightSequence(TopicPartition topicPartition) {
         PriorityQueue<ProducerBatch> inFlightBatches = inflightBatchesBySequence.get(topicPartition);
         if (inFlightBatches == null)
@@ -476,6 +479,7 @@ public class TransactionManager {
         return firstInFlightBatch.baseSequence();
     }
 
+    //note: 获取当前 partition 下一个将要发送的 batch
     synchronized ProducerBatch nextBatchBySequence(TopicPartition topicPartition) {
         PriorityQueue<ProducerBatch> queue = inflightBatchesBySequence.get(topicPartition);
         if (queue == null)
@@ -483,6 +487,7 @@ public class TransactionManager {
         return queue.peek();
     }
 
+    //note: 从记录的正在发送的集合中移除已经发送的 batch
     synchronized void removeInFlightBatch(ProducerBatch batch) {
         PriorityQueue<ProducerBatch> queue = inflightBatchesBySequence.get(batch.topicPartition);
         if (queue == null)
@@ -586,6 +591,7 @@ public class TransactionManager {
 
     // Checks if there are any partitions with unresolved partitions which may now be resolved. Returns true if
     // the producer id needs a reset, false otherwise.
+    //note: 如果 pid 需要重置，那么返回 true
     synchronized boolean shouldResetProducerStateAfterResolvingSequences() {
         if (isTransactional()) //note: 设置事务性时直接返回 false，事务性并不做检测
             // We should not reset producer state if we are transactional. We will transition to a fatal error instead.

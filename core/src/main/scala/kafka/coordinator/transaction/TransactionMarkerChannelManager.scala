@@ -199,9 +199,10 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
     retryLogAppends() //note: 重试添加失败的事务日志
     val txnIdAndMarkerEntries: java.util.List[TxnIdAndMarkerEntry] = new util.ArrayList[TxnIdAndMarkerEntry]()
     markersQueueForUnknownBroker.forEachTxnTopicPartition { case (_, queue) =>
-      queue.drainTo(txnIdAndMarkerEntries)
+      queue.drainTo(txnIdAndMarkerEntries) //note: 将 queue 中的数据全部迁移到 txnIdAndMarkerEntries 中
     }
 
+    //note: 将这些信息重新添加到 Broker 对应的队列中
     for (txnIdAndMarker: TxnIdAndMarkerEntry <- txnIdAndMarkerEntries.asScala) {
       val transactionalId = txnIdAndMarker.txnId
       val producerId = txnIdAndMarker.txnMarkerEntry.producerId

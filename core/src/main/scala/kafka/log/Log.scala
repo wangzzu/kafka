@@ -845,6 +845,7 @@ class Log(@volatile var dir: File,
 
         // now that we have valid records, offsets assigned, and timestamps updated, we need to
         // validate the idempotent/transactional state of the producers and collect some metadata
+        //note: 在这里才验证幂等性或事务性状态
         val (updatedProducers, completedTxns, maybeDuplicate) = analyzeAndValidateProducerState(validRecords, isFromClient)
         maybeDuplicate.foreach { duplicate =>
           appendInfo.firstOffset = Some(duplicate.firstOffset)
@@ -953,18 +954,18 @@ class Log(@volatile var dir: File,
   (mutable.Map[Long, ProducerAppendInfo], List[CompletedTxn], Option[BatchMetadata]) = {
     val updatedProducers = mutable.Map.empty[Long, ProducerAppendInfo]
     val completedTxns = ListBuffer.empty[CompletedTxn]
-    for (batch <- records.batches.asScala if batch.hasProducerId) {
+    for (batch <- records.batches.asScala if batch.hasProducerId) { //note: 有 pid 时
       val maybeLastEntry = producerStateManager.lastEntry(batch.producerId)
 
       // if this is a client produce request, there will be up to 5 batches which could have been duplicated.
       // If we find a duplicate, we return the metadata of the appended batch to the client.
       if (isFromClient) {
         maybeLastEntry.flatMap(_.findDuplicateBatch(batch)).foreach { duplicate =>
-          return (updatedProducers, completedTxns.toList, Some(duplicate))
+          return (updatedProducers, completedTxns.toList, Some(duplicate)) //note: 如果这个 batch 已经收到过，这里直接返回
         }
       }
 
-      val maybeCompletedTxn = updateProducers(batch, updatedProducers, isFromClient = isFromClient)
+      val maybeCompletedTxn = updateProducers(batch, updatedProducers, isFromClient = isFromClient) //note: 这里
       maybeCompletedTxn.foreach(completedTxns += _)
     }
     (updatedProducers, completedTxns.toList, None)
@@ -1062,7 +1063,7 @@ class Log(@volatile var dir: File,
                               isFromClient: Boolean): Option[CompletedTxn] = {
     val producerId = batch.producerId
     val appendInfo = producers.getOrElseUpdate(producerId, producerStateManager.prepareUpdate(producerId, isFromClient))
-    appendInfo.append(batch)
+    appendInfo.append(batch) //note: 记录一下这个 batch 的信息
   }
 
   /**
@@ -1977,7 +1978,7 @@ object Log {
             producerIdExpirationCheckIntervalMs: Int,
             logDirFailureChannel: LogDirFailureChannel): Log = {
     val topicPartition = Log.parseTopicPartitionName(dir)
-    val producerStateManager = new ProducerStateManager(topicPartition, dir, maxProducerIdExpirationMs)
+    val producerStateManager = new ProducerStateManager(topicPartition, dir, maxProducerIdExpirationMs)  //note: 每个 log 示例都会对应一个这个对象
     new Log(dir, config, logStartOffset, recoveryPoint, scheduler, brokerTopicStats, time, maxProducerIdExpirationMs,
       producerIdExpirationCheckIntervalMs, topicPartition, producerStateManager, logDirFailureChannel)
   }

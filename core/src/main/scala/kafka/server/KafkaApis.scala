@@ -392,6 +392,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       // Note that authorization to a transactionalId implies ProducerId authorization
 
     } else if (produceRequest.isIdempotent && !authorize(request.session, IdempotentWrite, Resource.ClusterResource)) {
+      //note: 幂等性时，要验证 IdempotentWrite 的权限
       sendErrorResponseMaybeThrottle(request, Errors.CLUSTER_AUTHORIZATION_FAILED.exception)
       return
     }

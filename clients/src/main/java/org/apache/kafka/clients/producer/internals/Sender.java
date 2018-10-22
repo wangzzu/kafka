@@ -201,7 +201,7 @@ public class Sender implements Runnable {
     void run(long now) {
         if (transactionManager != null) { //note: 设置幂等性的情况下
             try {
-                if (transactionManager.shouldResetProducerStateAfterResolvingSequences())
+                if (transactionManager.shouldResetProducerStateAfterResolvingSequences()) //note: 处理
                     // Check if the previous run expired batches which requires a reset of the producer state.
                     transactionManager.resetProducerId();
 

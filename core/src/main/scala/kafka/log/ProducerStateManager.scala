@@ -70,7 +70,7 @@ private[log] case class TxnMetadata(producerId: Long, var firstOffset: LogOffset
 }
 
 private[log] object ProducerStateEntry {
-  private[log] val NumBatchesToRetain = 5
+  private[log] val NumBatchesToRetain = 5 //note: 这里默认设置为 5
   def empty(producerId: Long) = new ProducerStateEntry(producerId, mutable.Queue[BatchMetadata](), RecordBatch.NO_PRODUCER_EPOCH, -1, None)
 }
 
@@ -128,8 +128,8 @@ private[log] class ProducerStateEntry(val producerId: Long,
 
   private def addBatchMetadata(batch: BatchMetadata): Unit = {
     if (batchMetadata.size == ProducerStateEntry.NumBatchesToRetain)
-      batchMetadata.dequeue()
-    batchMetadata.enqueue(batch)
+      batchMetadata.dequeue() //note: 只会保留最近 5 个 batch 的记录（TODO：需要保证的时即使出现重试，重试的请求也必然会在最近的5个请求中，否则就无法判断了 ）
+    batchMetadata.enqueue(batch) //note: 添加到 batchMetadata 中记录，便于后续根据 seq id 判断是否重复
   }
 
   def update(nextEntry: ProducerStateEntry): Unit = {
@@ -202,7 +202,7 @@ private[log] class ProducerAppendInfo(val producerId: Long,
 
       case ValidationType.Full =>
         checkProducerEpoch(producerEpoch)
-        checkSequence(producerEpoch, firstSeq)
+        checkSequence(producerEpoch, firstSeq) //note: 检查相应的 seq id
     }
   }
 
@@ -213,13 +213,14 @@ private[log] class ProducerAppendInfo(val producerId: Long,
     }
   }
 
+  //note: 检查 seq
   private def checkSequence(producerEpoch: Short, appendFirstSeq: Int): Unit = {
     if (producerEpoch != updatedEntry.producerEpoch) {
       if (appendFirstSeq != 0) {
         if (updatedEntry.producerEpoch != RecordBatch.NO_PRODUCER_EPOCH) {
           throw new OutOfOrderSequenceException(s"Invalid sequence number for new epoch: $producerEpoch " +
             s"(request epoch), $appendFirstSeq (seq. number)")
-        } else {
+        } else { //note: pid 已经过期
           throw new UnknownProducerIdException(s"Found no record of producerId=$producerId on the broker. It is possible " +
             s"that the last message with the producerId=$producerId has been removed due to hitting the retention limit.")
         }
@@ -248,7 +249,7 @@ private[log] class ProducerAppendInfo(val producerId: Long,
   }
 
   def append(batch: RecordBatch): Option[CompletedTxn] = {
-    if (batch.isControlBatch) {
+    if (batch.isControlBatch) { //note: TxnMarker 数据
       val record = batch.iterator.next()
       val endTxnMarker = EndTransactionMarker.deserialize(record)
       val completedTxn = appendEndTxnMarker(endTxnMarker, batch.producerEpoch, batch.baseOffset, record.timestamp)
@@ -266,15 +267,15 @@ private[log] class ProducerAppendInfo(val producerId: Long,
              lastTimestamp: Long,
              lastOffset: Long,
              isTransactional: Boolean): Unit = {
-    maybeValidateAppend(epoch, firstSeq)
-    updatedEntry.addBatch(epoch, lastSeq, lastOffset, lastSeq - firstSeq, lastTimestamp)
+    maybeValidateAppend(epoch, firstSeq) //note：先检查 seq id，有问题的话抛出异常
+    updatedEntry.addBatch(epoch, lastSeq, lastOffset, lastSeq - firstSeq, lastTimestamp) //note：记录相应的 batch meta
 
     updatedEntry.currentTxnFirstOffset match {
       case Some(_) if !isTransactional =>
         // Received a non-transactional message while a transaction is active
         throw new InvalidTxnStateException(s"Expected transactional write from producer $producerId")
 
-      case None if isTransactional =>
+      case None if isTransactional => //note：事务性时
         // Began a new transaction
         val firstOffset = lastOffset - (lastSeq - firstSeq)
         updatedEntry.currentTxnFirstOffset = Some(firstOffset)
@@ -476,6 +477,7 @@ object ProducerStateManager {
  * or if the topic also is configured for deletion, the segment containing the last written offset has
  * been deleted.
  */
+//note: 维护 pid 与最后成功写入的 entries 的 meta 信息（epoch、seq id、last offset 等）
 @nonthreadsafe
 class ProducerStateManager(val topicPartition: TopicPartition,
                            @volatile var logDir: File,

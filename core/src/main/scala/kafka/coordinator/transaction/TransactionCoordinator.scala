@@ -436,7 +436,7 @@ class TransactionCoordinator(brokerId: Int,
 
                   txnMarkerChannelManager.addTxnMarkersToSend(transactionalId, coordinatorEpoch, txnMarkerResult, txnMetadata, newPreSendMetadata)
               }
-            } else { //note: 因为追加事务日志失败，这里会 abort 发送事务 marker，并且向用户返回一个 error
+            } else { //note: 因为追加事务日志失败，这里会丢弃发送事务 marker，并且向用户返回一个 error
               info(s"Aborting sending of transaction markers and returning $error error to client for $transactionalId's EndTransaction request of $txnMarkerResult, " +
                 s"since appending $newMetadata to transaction log with coordinator epoch $coordinatorEpoch failed")
 

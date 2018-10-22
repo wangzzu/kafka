@@ -242,7 +242,7 @@ public final class RecordAccumulator {
     }
 
     private MemoryRecordsBuilder recordsBuilder(ByteBuffer buffer, byte maxUsableMagic) {
-        if (transactionManager != null && maxUsableMagic < RecordBatch.MAGIC_VALUE_V2) {
+        if (transactionManager != null && maxUsableMagic < RecordBatch.MAGIC_VALUE_V2) { //note: 幂等性或事务性对版本有要求
             throw new UnsupportedVersionException("Attempting to use idempotence with a broker which does not " +
                     "support the required message format (v2). The broker must be version 0.11 or later.");
         }
@@ -370,17 +370,19 @@ public final class RecordAccumulator {
     // Note that this assumes that all the batches in the queue which have an assigned sequence also have the current
     // producer id. We will not attempt to reorder messages if the producer id has changed, we will throw an
     // IllegalStateException instead.
+    //note: 保证重试时，还是原来的 seq iq（重新加入 队列 是，尽量保证数据是放在合适的位置）
     private void insertInSequenceOrder(Deque<ProducerBatch> deque, ProducerBatch batch) {
         // When we are requeing and have enabled idempotence, the reenqueued batch must always have a sequence.
         if (batch.baseSequence() == RecordBatch.NO_SEQUENCE)
             throw new IllegalStateException("Trying to reenqueue a batch which doesn't have a sequence even " +
                     "though idempotence is enabled.");
 
-        if (transactionManager.nextBatchBySequence(batch.topicPartition) == null)
+        if (transactionManager.nextBatchBySequence(batch.topicPartition) == null) //note: 因为这个 batch 没有成功，所以对应的 partition 中必然有相应的 batch 记录
             throw new IllegalStateException("We are reenqueueing a batch which is not tracked as part of the in flight " +
                     "requests. batch.topicPartition: " + batch.topicPartition + "; batch.baseSequence: " + batch.baseSequence());
 
-        ProducerBatch firstBatchInQueue = deque.peekFirst();
+        ProducerBatch firstBatchInQueue = deque.peekFirst(); //note: 获取这个队列的第一个 batch
+        //note: 这里主要是为了将重试的batch 放到的合适位置（根据每个 batch 的 baseSequence），最大可能防止乱序
         if (firstBatchInQueue != null && firstBatchInQueue.hasSequence() && firstBatchInQueue.baseSequence() < batch.baseSequence()) {
             // The incoming batch can't be inserted at the front of the queue without violating the sequence ordering.
             // This means that the incoming batch should be placed somewhere further back.
@@ -520,7 +522,7 @@ public final class RecordAccumulator {
                 if (!isMuted(tp, now)) {
                     Deque<ProducerBatch> deque = getDeque(tp);
                     if (deque != null) {
-                        synchronized (deque) {
+                        synchronized (deque) { //note: 先判断有没有数据，然后后面真正处理时再加锁处理
                             ProducerBatch first = deque.peekFirst();
                             if (first != null) {
                                 boolean backoff = first.attempts() > 0 && first.waitedTimeMs(now) < retryBackoffMs;
@@ -534,12 +536,12 @@ public final class RecordAccumulator {
                                     } else {
                                         ProducerIdAndEpoch producerIdAndEpoch = null;
                                         boolean isTransactional = false;
-                                        if (transactionManager != null) {
+                                        if (transactionManager != null) { //note: 幂等性或事务性时， 做一些检查判断
                                             if (!transactionManager.isSendToPartitionAllowed(tp))
                                                 break;
 
                                             producerIdAndEpoch = transactionManager.producerIdAndEpoch();
-                                            if (!producerIdAndEpoch.isValid())
+                                            if (!producerIdAndEpoch.isValid()) //note: pid 是否有效
                                                 // we cannot send the batch until we have refreshed the producer id
                                                 break;
 
@@ -553,7 +555,7 @@ public final class RecordAccumulator {
 
                                             int firstInFlightSequence = transactionManager.firstInFlightSequence(first.topicPartition);
                                             if (firstInFlightSequence != RecordBatch.NO_SEQUENCE && first.hasSequence()
-                                                    && first.baseSequence() != firstInFlightSequence)
+                                                    && first.baseSequence() != firstInFlightSequence) //note: 重试导致的
                                                 // If the queued batch already has an assigned sequence, then it is being
                                                 // retried. In this case, we wait until the next immediate batch is ready
                                                 // and drain that. We only move on when the next in line batch is complete (either successfully
@@ -563,7 +565,7 @@ public final class RecordAccumulator {
                                         }
 
                                         ProducerBatch batch = deque.pollFirst();
-                                        if (producerIdAndEpoch != null && !batch.hasSequence()) {
+                                        if (producerIdAndEpoch != null && !batch.hasSequence()) {//note: batch 的相关信息（seq id）是在这里设置的
                                             // If the batch already has an assigned sequence, then we should not change the producer id and
                                             // sequence number, since this may introduce duplicates. In particular,
                                             // the previous attempt may actually have been accepted, and if we change
@@ -574,8 +576,9 @@ public final class RecordAccumulator {
                                             // and also have the transaction manager track the batch so as to ensure
                                             // that sequence ordering is maintained even if we receive out of order
                                             // responses.
+                                            //note: 给这个 batch 设置相应的 pid、seq id 等信息
                                             batch.setProducerState(producerIdAndEpoch, transactionManager.sequenceNumber(batch.topicPartition), isTransactional);
-                                            transactionManager.incrementSequenceNumber(batch.topicPartition, batch.recordCount);
+                                            transactionManager.incrementSequenceNumber(batch.topicPartition, batch.recordCount); //note: 增加 partition 对应的下一个 seq id 值
                                             log.debug("Assigned producerId {} and producerEpoch {} to batch with base sequence " +
                                                             "{} being sent to partition {}", producerIdAndEpoch.producerId,
                                                     producerIdAndEpoch.epoch, batch.baseSequence(), tp);

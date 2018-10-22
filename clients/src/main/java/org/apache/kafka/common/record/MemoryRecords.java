@@ -441,7 +441,7 @@ public class MemoryRecords extends AbstractRecords {
             logAppendTime = System.currentTimeMillis();
         return builder(buffer, magic, compressionType, timestampType, baseOffset, logAppendTime,
                 RecordBatch.NO_PRODUCER_ID, RecordBatch.NO_PRODUCER_EPOCH, RecordBatch.NO_SEQUENCE, false,
-                RecordBatch.NO_PARTITION_LEADER_EPOCH);
+                RecordBatch.NO_PARTITION_LEADER_EPOCH); //note: 默认没有启动 幂等性 或 事务性
     }
 
     public static MemoryRecordsBuilder builder(ByteBuffer buffer,
@@ -501,9 +501,9 @@ public class MemoryRecords extends AbstractRecords {
                                                TimestampType timestampType,
                                                long baseOffset,
                                                long logAppendTime,
-                                               long producerId,
-                                               short producerEpoch,
-                                               int baseSequence,
+                                               long producerId, //note: PID
+                                               short producerEpoch, //note: producer epoch
+                                               int baseSequence, //note: base seq
                                                boolean isTransactional,
                                                boolean isControlBatch,
                                                int partitionLeaderEpoch) {
