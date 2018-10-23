@@ -220,13 +220,14 @@ private[log] class ProducerAppendInfo(val producerId: Long,
   //note: 检查 seq id
   private def checkSequence(producerEpoch: Short, appendFirstSeq: Int): Unit = {
     if (producerEpoch != updatedEntry.producerEpoch) { //note: epoch 不同时
-      if (appendFirstSeq != 0) {
+      if (appendFirstSeq != 0) { //note: 此时要求 seq id 必须从0开始（如果不是的话，pid 可能是新建的或者 PID 在 Server 端已经过期）
+        //note: pid 已经过期（updatedEntry.producerEpoch 不是-1，证明时原来的 pid 过期了）
         if (updatedEntry.producerEpoch != RecordBatch.NO_PRODUCER_EPOCH) {
           throw new OutOfOrderSequenceException(s"Invalid sequence number for new epoch: $producerEpoch " +
             s"(request epoch), $appendFirstSeq (seq. number)")
-        } else { //note: pid 已经过期
+        } else { //note: pid 已经过期（updatedEntry.producerEpoch 为-1，证明 server 端 meta 新建的，PID 在 server 端已经过期，client 还在接着上次的 seq 发数据）
           throw new UnknownProducerIdException(s"Found no record of producerId=$producerId on the broker. It is possible " +
-            s"that the last message with the producerId=$producerId has been removed due to hitting the retention limit.")
+            s"that the last message with t（）he producerId=$producerId has been removed due to hitting the retention limit.")
         }
       }
     } else {
@@ -238,7 +239,7 @@ private[log] class ProducerAppendInfo(val producerId: Long,
         RecordBatch.NO_SEQUENCE
 
       if (currentLastSeq == RecordBatch.NO_SEQUENCE && appendFirstSeq != 0) {
-        //note: 此时期望的 seq id 是从 0 开始,因为 currentLastSeq 是 -1,也就意味着这个 pid 是新的
+        //note: 此时期望的 seq id 是从 0 开始,因为 currentLastSeq 是 -1,也就意味着这个 pid 还没有写入过数据
         // the epoch was bumped by a control record, so we expect the sequence number to be reset
         throw new OutOfOrderSequenceException(s"Out of order sequence number for producerId $producerId: found $appendFirstSeq " +
           s"(incoming seq. number), but expected 0")
