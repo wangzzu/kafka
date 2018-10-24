@@ -110,7 +110,7 @@ class TransactionCoordinator(brokerId: Int,
       // if the transactional id is null, then always blindly accept the request
       // and return a new producerId from the producerId manager
       val producerId = producerIdManager.generateProducerId()
-      responseCallback(InitProducerIdResult(producerId, producerEpoch = 0, Errors.NONE))
+      responseCallback(InitProducerIdResult(producerId, producerEpoch = 0, Errors.NONE)) //note: Epoch 设置为 0
     } else if (transactionalId.isEmpty) { //note: transaction.id 为空时，直接返回异常
       // if transactional id is empty then return error as invalid request. This is
       // to make TransactionCoordinator's behavior consistent with producer client
