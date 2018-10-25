@@ -132,7 +132,7 @@ private[log] class ProducerStateEntry(val producerId: Long,
 
   private def addBatchMetadata(batch: BatchMetadata): Unit = {
     if (batchMetadata.size == ProducerStateEntry.NumBatchesToRetain)
-      batchMetadata.dequeue() //note: 只会保留最近 5 个 batch 的记录（TODO：需要保证的时即使出现重试，重试的请求也必然会在最近的5个请求中，否则就无法判断了 ）
+      batchMetadata.dequeue() //note: 只会保留最近 5 个 batch 的记录
     batchMetadata.enqueue(batch) //note: 添加到 batchMetadata 中记录，便于后续根据 seq id 判断是否重复
   }
 
@@ -217,10 +217,10 @@ private[log] class ProducerAppendInfo(val producerId: Long,
     }
   }
 
-  //note: 检查 seq id
+  //note: 检查 seq number
   private def checkSequence(producerEpoch: Short, appendFirstSeq: Int): Unit = {
     if (producerEpoch != updatedEntry.producerEpoch) { //note: epoch 不同时
-      if (appendFirstSeq != 0) { //note: 此时要求 seq id 必须从0开始（如果不是的话，pid 可能是新建的或者 PID 在 Server 端已经过期）
+      if (appendFirstSeq != 0) { //note: 此时要求 seq number 必须从0开始（如果不是的话，pid 可能是新建的或者 PID 在 Server 端已经过期）
         //note: pid 已经过期（updatedEntry.producerEpoch 不是-1，证明时原来的 pid 过期了）
         if (updatedEntry.producerEpoch != RecordBatch.NO_PRODUCER_EPOCH) {
           throw new OutOfOrderSequenceException(s"Invalid sequence number for new epoch: $producerEpoch " +
@@ -239,7 +239,7 @@ private[log] class ProducerAppendInfo(val producerId: Long,
         RecordBatch.NO_SEQUENCE
 
       if (currentLastSeq == RecordBatch.NO_SEQUENCE && appendFirstSeq != 0) {
-        //note: 此时期望的 seq id 是从 0 开始,因为 currentLastSeq 是 -1,也就意味着这个 pid 还没有写入过数据
+        //note: 此时期望的 seq number 是从 0 开始,因为 currentLastSeq 是 -1,也就意味着这个 pid 还没有写入过数据
         // the epoch was bumped by a control record, so we expect the sequence number to be reset
         throw new OutOfOrderSequenceException(s"Out of order sequence number for producerId $producerId: found $appendFirstSeq " +
           s"(incoming seq. number), but expected 0")

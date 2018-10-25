@@ -598,14 +598,14 @@ public class TransactionManager {
             return false;
         for (Iterator<TopicPartition> iter = partitionsWithUnresolvedSequences.iterator(); iter.hasNext(); ) {
             TopicPartition topicPartition = iter.next();
-            if (!hasInflightBatches(topicPartition)) {
+            if (!hasInflightBatches(topicPartition)) { //note: 此时没有 batch 正在发送
                 // The partition has been fully drained. At this point, the last ack'd sequence should be once less than
                 // next sequence destined for the partition. If so, the partition is fully resolved. If not, we should
                 // reset the sequence number if necessary.
-                if (isNextSequence(topicPartition, sequenceNumber(topicPartition))) {
+                if (isNextSequence(topicPartition, sequenceNumber(topicPartition))) { //note: 数据是连续的,之前的问题已经解决
                     // This would happen when a batch was expired, but subsequent batches succeeded.
                     iter.remove();
-                } else {
+                } else { //note: 重置 PID
                     // We would enter this branch if all in flight batches were ultimately expired in the producer.
                     log.info("No inflight batches remaining for {}, last ack'd sequence for partition is {}, next sequence is {}. " +
                             "Going to reset producer state.", topicPartition, lastAckedSequence(topicPartition), sequenceNumber(topicPartition));
