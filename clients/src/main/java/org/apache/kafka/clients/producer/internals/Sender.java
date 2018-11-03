@@ -224,7 +224,7 @@ public class Sender implements Runnable {
                     //note: 如果 TXN Manager 在错误的状态或者没有对应的 PID
                     RuntimeException lastError = transactionManager.lastError();
                     if (lastError != null)
-                        maybeAbortBatches(lastError);
+                        maybeAbortBatches(lastError); //note: 事务出错
                     client.poll(retryBackoffMs, now);
                     return;
                 } else if (transactionManager.hasAbortableError()) {
@@ -608,6 +608,7 @@ public class Sender implements Runnable {
         failBatch(batch, response.baseOffset, response.logAppendTime, exception, adjustSequenceNumbers);
     }
 
+    //note: Batch 失败的情况
     private void failBatch(ProducerBatch batch, long baseOffset, long logAppendTime, RuntimeException exception, boolean adjustSequenceNumbers) {
         if (transactionManager != null) {
             if (exception instanceof OutOfOrderSequenceException
@@ -620,14 +621,14 @@ public class Sender implements Runnable {
                 // Reset the transaction state since we have hit an irrecoverable exception and cannot make any guarantees
                 // about the previously committed message. Note that this will discard the producer id and sequence
                 // numbers for all existing partitions.
-                transactionManager.resetProducerId();
+                transactionManager.resetProducerId(); //note: 对于不可恢复的异常，直接重置 PID，事务会直接取消
             } else if (exception instanceof ClusterAuthorizationException
                     || exception instanceof TransactionalIdAuthorizationException
                     || exception instanceof ProducerFencedException
                     || exception instanceof UnsupportedVersionException) {
-                transactionManager.transitionToFatalError(exception);
+                transactionManager.transitionToFatalError(exception); //note: 事务失败（程序会直接崩掉，run 方法直接 return 了）
             } else if (transactionManager.isTransactional()) {
-                transactionManager.transitionToAbortableError(exception);
+                transactionManager.transitionToAbortableError(exception); //note: 事务 abort
             }
             transactionManager.removeInFlightBatch(batch);
             if (adjustSequenceNumbers)
