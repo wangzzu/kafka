@@ -209,6 +209,7 @@ object TransactionLog {
     *
     * @return a transaction metadata object from the message
     */
+  //note: 按照相应的格式编译 TransactionMetadata
   def readTxnRecordValue(transactionalId: String, buffer: ByteBuffer): TransactionMetadata = {
     if (buffer == null) { // tombstone
       null

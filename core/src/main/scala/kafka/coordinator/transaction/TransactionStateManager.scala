@@ -329,16 +329,17 @@ class TransactionStateManager(brokerId: Int,
                 MemoryRecords.readableRecords(buffer)
             }
 
+            //note: 从日志中读取的状态信息序列化之后,更新到 loadedTransactions 中
             memRecords.batches.asScala.foreach { batch =>
               for (record <- batch.asScala) {
                 require(record.hasKey, "Transaction state log's key should not be null")
-                val txnKey = TransactionLog.readTxnRecordKey(record.key)
+                val txnKey = TransactionLog.readTxnRecordKey(record.key) //note: read key
                 // load transaction metadata along with transaction state
                 val transactionalId = txnKey.transactionalId
                 if (!record.hasValue) {
                   loadedTransactions.remove(transactionalId)
                 } else {
-                  val txnMetadata = TransactionLog.readTxnRecordValue(transactionalId, record.value)
+                  val txnMetadata = TransactionLog.readTxnRecordValue(transactionalId, record.value) //note: read value
                   loadedTransactions.put(transactionalId, txnMetadata)
                 }
                 currOffset = batch.nextOffset
@@ -379,6 +380,7 @@ class TransactionStateManager(brokerId: Int,
    * When this broker becomes a leader for a transaction log partition, load this partition and
    * populate the transaction metadata cache with the transactional ids.
    */
+  //note: 加载事务日志（将 topic 中的事务状态信息更新到缓存中）
   def loadTransactionsForTxnTopicPartition(partitionId: Int, coordinatorEpoch: Int, sendTxnMarkers: SendTxnMarkersCallback) {
     validateTransactionTopicPartitionCountIsStable()
 
@@ -399,7 +401,7 @@ class TransactionStateManager(brokerId: Int,
           addLoadedTransactionsToCache(topicPartition.partition, coordinatorEpoch, loadedTransactions)
 
           val transactionsPendingForCompletion = new mutable.ListBuffer[TransactionalIdCoordinatorEpochAndTransitMetadata]
-          loadedTransactions.foreach {
+          loadedTransactions.foreach { //note: 如果之前的状态是 PrepareAbort 或 PrepareCommit,那么完成上次未完成的事务
             case (transactionalId, txnMetadata) =>
               txnMetadata.inLock {
                 // if state is PrepareCommit or PrepareAbort we need to complete the transaction
