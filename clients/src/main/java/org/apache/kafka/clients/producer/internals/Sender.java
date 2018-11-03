@@ -292,7 +292,7 @@ public class Sender implements Runnable {
             failBatch(expiredBatch, -1, NO_TIMESTAMP, expiredBatch.timeoutException(), false);
             if (transactionManager != null && expiredBatch.inRetry()) {
                 // This ensures that no new batches are drained until the current in flight batches are fully resolved.
-                transactionManager.markSequenceUnresolved(expiredBatch.topicPartition);
+                transactionManager.markSequenceUnresolved(expiredBatch.topicPartition);//note: batch超时时,添加到  markSequenceUnresolved 中
             }
         }
 
@@ -428,7 +428,7 @@ public class Sender implements Runnable {
     private void maybeWaitForProducerId() {
         while (!transactionManager.hasProducerId() && !transactionManager.hasError()) {
             try {
-                Node node = awaitLeastLoadedNodeReady(requestTimeoutMs); //note: 选取 node（连接最少的 node）
+                Node node = awaitLeastLoadedNodeReady(requestTimeoutMs); //note: 选取 node（本地连接数最少的 node）
                 if (node != null) {
                     ClientResponse response = sendAndAwaitInitProducerIdRequest(node); //note: 发送 InitPidRequest
                     InitProducerIdResponse initProducerIdResponse = (InitProducerIdResponse) response.responseBody();

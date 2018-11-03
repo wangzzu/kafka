@@ -320,11 +320,11 @@ public final class RecordAccumulator {
      * Re-enqueue the given record batch in the accumulator to retry
      */
     public void reenqueue(ProducerBatch batch, long now) {
-        batch.reenqueued(now);
+        batch.reenqueued(now); //note: 重试,更新相应的 meta
         Deque<ProducerBatch> deque = getOrCreateDeque(batch.topicPartition);
         synchronized (deque) {
             if (transactionManager != null)
-                insertInSequenceOrder(deque, batch);
+                insertInSequenceOrder(deque, batch); //note: 将 batch 添加到队列的合适位置（根据 seq num 信息）
             else
                 deque.addFirst(batch);
         }
@@ -548,14 +548,21 @@ public final class RecordAccumulator {
                                             isTransactional = transactionManager.isTransactional();
 
                                             if (!first.hasSequence() && transactionManager.hasUnresolvedSequence(first.topicPartition))
+                                                //note: 当前这个 topic-partition 的数据出现过超时,不能发送,如果是新的 batch 数据直接跳过（没有 seq  number 信息）
                                                 // Don't drain any new batches while the state of previous sequence numbers
                                                 // is unknown. The previous batches would be unknown if they were aborted
                                                 // on the client after being sent to the broker at least once.
                                                 break;
 
+                                            //note: 获取 inFlightBatches 中第一个 batch 的 baseSequence, inFlightBatches 为 null 的话返回 RecordBatch.NO_SEQUENCE
                                             int firstInFlightSequence = transactionManager.firstInFlightSequence(first.topicPartition);
                                             if (firstInFlightSequence != RecordBatch.NO_SEQUENCE && first.hasSequence()
-                                                    && first.baseSequence() != firstInFlightSequence) //note: 重试导致的
+                                                    && first.baseSequence() != firstInFlightSequence)
+                                                //note: 重试操作（seq number 不为0）,如果这个 batch 的 baseSequence 与 in-flight 
+                                                //note: queue 中第一个 request batch 的 baseSequence不同的话（证明它前面还有请求未成功）,
+                                                //note: 会等待下次循环再判断, 最坏的情况下会导致 in-flight request 为1（只影响这个 partition）
+                                                //note: 这种情况下,继续发送这个是没有意义的,因为幂等性时保证顺序的,只有前面的都成功,后面的再发送才有意义
+                                                //note: 这里是 break,相当于在这次发送中直接跳过了这个 topic-partition 的发送
                                                 // If the queued batch already has an assigned sequence, then it is being
                                                 // retried. In this case, we wait until the next immediate batch is ready
                                                 // and drain that. We only move on when the next in line batch is complete (either successfully
@@ -566,6 +573,7 @@ public final class RecordAccumulator {
 
                                         ProducerBatch batch = deque.pollFirst();
                                         if (producerIdAndEpoch != null && !batch.hasSequence()) {//note: batch 的相关信息（seq id）是在这里设置的
+                                            //note: 这个 batch 还没有 seq number 信息
                                             // If the batch already has an assigned sequence, then we should not change the producer id and
                                             // sequence number, since this may introduce duplicates. In particular,
                                             // the previous attempt may actually have been accepted, and if we change
