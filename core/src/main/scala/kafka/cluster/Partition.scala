@@ -323,6 +323,7 @@ class Partition(val topic: String,
    * fully caught up to the (local) leader's offset corresponding to this produce request before we acknowledge the
    * produce request.
    */
+  //note: ack=-1时, 检查副本同步是否满足要求(足够的副本达到 requiredOffset)
   def checkEnoughReplicasReachOffset(requiredOffset: Long): (Boolean, Errors) = {
     leaderReplicaIfLocal match {
       case Some(leaderReplica) =>
@@ -345,12 +346,12 @@ class Partition(val topic: String,
 
         val minIsr = leaderReplica.log.get.config.minInSyncReplicas
 
-        if (leaderReplica.highWatermark.messageOffset >= requiredOffset) {
+        if (leaderReplica.highWatermark.messageOffset >= requiredOffset) { //note: 根据 leader 的 HW 来判断
           /*
            * The topic may be configured not to accept messages if there are not enough replicas in ISR
            * in this scenario the request was already appended locally and then added to the purgatory before the ISR was shrunk
            */
-          if (minIsr <= curInSyncReplicas.size)
+          if (minIsr <= curInSyncReplicas.size) //note: min.isr 满足要求
             (true, Errors.NONE)
           else
             (true, Errors.NOT_ENOUGH_REPLICAS_AFTER_APPEND)

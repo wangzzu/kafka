@@ -264,7 +264,7 @@ class ReplicaManager(val config: KafkaConfig,
           .format(localBrokerId, stopReplicaRequest.controllerEpoch, controllerEpoch))
         (responseMap, Errors.STALE_CONTROLLER_EPOCH.code)
       } else {
-        val partitions = stopReplicaRequest.partitions.asScala //note: 要停止同步的 topic-partiiton 列表
+        val partitions = stopReplicaRequest.partitions.asScala //note: 要停止同步的 topic-partition 列表
         controllerEpoch = stopReplicaRequest.controllerEpoch
         // First stop fetchers for all partitions, then stop the corresponding replicas
         replicaFetcherManager.removeFetcherForPartitions(partitions) //note: 停止副本同步
