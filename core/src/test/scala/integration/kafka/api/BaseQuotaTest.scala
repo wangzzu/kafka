@@ -228,7 +228,7 @@ abstract class QuotaTestClients(topic: String,
     if (expectThrottle) {
       assertTrue(s"Client with id=$clientId should have been throttled", throttleMetricValue > 0)
     } else {
-      assertEquals(s"Client with id=$clientId should not have been throttled", 0.0, throttleMetricValue, 0.0)
+      assertTrue(s"Client with id=$clientId should not have been throttled", throttleMetricValue.isNaN)
     }
   }
 
@@ -285,7 +285,7 @@ abstract class QuotaTestClients(topic: String,
 
   def waitForQuotaUpdate(producerQuota: Long, consumerQuota: Long, requestQuota: Double, server: KafkaServer = leaderNode) {
     TestUtils.retry(10000) {
-      val quotaManagers = server.apis.quotas
+      val quotaManagers = server.dataPlaneRequestProcessor.quotas
       val overrideProducerQuota = quota(quotaManagers.produce, userPrincipal, producerClientId)
       val overrideConsumerQuota = quota(quotaManagers.fetch, userPrincipal, consumerClientId)
       val overrideProducerRequestQuota = quota(quotaManagers.request, userPrincipal, producerClientId)

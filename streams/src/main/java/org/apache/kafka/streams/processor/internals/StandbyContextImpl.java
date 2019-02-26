@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams.processor.internals;
 
+import java.time.Duration;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Headers;
@@ -73,8 +74,6 @@ class StandbyContextImpl extends AbstractProcessorContext implements RecordColle
             return Collections.emptyMap();
         }
     };
-
-    private long streamTime = RecordQueue.UNKNOWN;
 
     StandbyContextImpl(final TaskId id,
                        final StreamsConfig config,
@@ -189,7 +188,16 @@ class StandbyContextImpl extends AbstractProcessorContext implements RecordColle
      * @throws UnsupportedOperationException on every invocation
      */
     @Override
+    @SuppressWarnings("deprecation")
     public Cancellable schedule(final long interval, final PunctuationType type, final Punctuator callback) {
+        throw new UnsupportedOperationException("this should not happen: schedule() not supported in standby tasks.");
+    }
+
+    /**
+     * @throws UnsupportedOperationException on every invocation
+     */
+    @Override
+    public Cancellable schedule(final Duration interval, final PunctuationType type, final Punctuator callback) throws IllegalArgumentException {
         throw new UnsupportedOperationException("this should not happen: schedule() not supported in standby tasks.");
     }
 
@@ -221,14 +229,4 @@ class StandbyContextImpl extends AbstractProcessorContext implements RecordColle
     public ProcessorNode currentNode() {
         throw new UnsupportedOperationException("this should not happen: currentNode not supported in standby tasks.");
     }
-
-    void updateStreamTime(final long streamTime) {
-        this.streamTime = Math.max(this.streamTime, streamTime);
-    }
-
-    @Override
-    public long streamTime() {
-        return streamTime;
-    }
-
 }

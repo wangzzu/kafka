@@ -18,41 +18,62 @@ package org.apache.kafka.streams.kstream.internals.suppress;
 
 import org.apache.kafka.streams.kstream.Suppressed;
 import org.apache.kafka.streams.kstream.Windowed;
-import org.apache.kafka.streams.processor.ProcessorContext;
 
 import java.time.Duration;
 import java.util.Objects;
 
-public class FinalResultsSuppressionBuilder<K extends Windowed> implements Suppressed<K> {
+public class FinalResultsSuppressionBuilder<K extends Windowed> implements Suppressed<K>, NamedSuppressed<K> {
+    private final String name;
     private final StrictBufferConfig bufferConfig;
 
-    public FinalResultsSuppressionBuilder(final Suppressed.StrictBufferConfig bufferConfig) {
+    public FinalResultsSuppressionBuilder(final String name, final Suppressed.StrictBufferConfig bufferConfig) {
+        this.name = name;
         this.bufferConfig = bufferConfig;
     }
 
-    public SuppressedImpl<K> buildFinalResultsSuppression(final Duration gracePeriod) {
-        return new SuppressedImpl<>(
+    public SuppressedInternal<K> buildFinalResultsSuppression(final Duration gracePeriod) {
+        return new SuppressedInternal<>(
+            name,
             gracePeriod,
             bufferConfig,
-            (ProcessorContext context, K key) -> key.window().end()
+            TimeDefinitions.WindowEndTimeDefinition.instance(),
+            true
         );
     }
 
     @Override
+    public Suppressed<K> withName(final String name) {
+        return new FinalResultsSuppressionBuilder<>(name, bufferConfig);
+    }
+
+    @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         final FinalResultsSuppressionBuilder<?> that = (FinalResultsSuppressionBuilder<?>) o;
-        return Objects.equals(bufferConfig, that.bufferConfig);
+        return Objects.equals(name, that.name) &&
+            Objects.equals(bufferConfig, that.bufferConfig);
+    }
+
+    @Override
+    public String name() {
+        return name;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(bufferConfig);
+        return Objects.hash(name, bufferConfig);
     }
 
     @Override
     public String toString() {
-        return "FinalResultsSuppressionBuilder{bufferConfig=" + bufferConfig + '}';
+        return "FinalResultsSuppressionBuilder{" +
+            "name='" + name + '\'' +
+            ", bufferConfig=" + bufferConfig +
+            '}';
     }
 }

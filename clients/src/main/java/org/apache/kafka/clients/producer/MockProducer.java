@@ -29,7 +29,9 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.ProducerFencedException;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.serialization.Serializer;
+import org.apache.kafka.common.utils.Time;
 
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -38,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 /**
  * A mock of the producer interface you can use for testing code that uses Kafka.
@@ -254,7 +255,8 @@ public class MockProducer<K, V> implements Producer<K, V> {
             partition = partition(record, this.cluster);
         TopicPartition topicPartition = new TopicPartition(record.topic(), partition);
         ProduceRequestResult result = new ProduceRequestResult(topicPartition);
-        FutureRecordMetadata future = new FutureRecordMetadata(result, 0, RecordBatch.NO_TIMESTAMP, 0L, 0, 0);
+        FutureRecordMetadata future = new FutureRecordMetadata(result, 0, RecordBatch.NO_TIMESTAMP,
+                0L, 0, 0, Time.SYSTEM);
         long offset = nextOffset(topicPartition);
         Completion completion = new Completion(offset, new RecordMetadata(topicPartition, 0, offset,
                 RecordBatch.NO_TIMESTAMP, Long.valueOf(0L), 0, 0), result, callback);
@@ -310,11 +312,11 @@ public class MockProducer<K, V> implements Producer<K, V> {
 
     @Override
     public void close() {
-        close(0, null);
+        close(Duration.ofMillis(0));
     }
 
     @Override
-    public void close(long timeout, TimeUnit timeUnit) {
+    public void close(Duration timeout) {
         if (producerFencedOnClose) {
             throw new ProducerFencedException("MockProducer is fenced.");
         }

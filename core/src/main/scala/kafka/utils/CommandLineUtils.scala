@@ -16,21 +16,44 @@
  */
  package kafka.utils
 
-import joptsimple.{OptionSpec, OptionSet, OptionParser}
-import scala.collection.Set
 import java.util.Properties
 
- /**
- * Helper functions for dealing with command line utilities
- */
+import joptsimple.{OptionParser, OptionSet, OptionSpec}
+
+import scala.collection.Set
+
+/**
+  * Helper functions for dealing with command line utilities
+  */
 object CommandLineUtils extends Logging {
+  /**
+    * Check if there are no options or `--help` option from command line
+    *
+    * @param commandOpts Acceptable options for a command
+    * @return true on matching the help check condition
+    */
+  def isPrintHelpNeeded(commandOpts: CommandDefaultOptions): Boolean = {
+    return commandOpts.args.length == 0 || commandOpts.options.has(commandOpts.helpOpt)
+  }
+
+  /**
+    * Check and print help message if there is no options or `--help` option
+    * from command line
+    *
+    * @param commandOpts Acceptable options for a command
+    * @param message     Message to display on successful check
+    */
+  def printHelpAndExitIfNeeded(commandOpts: CommandDefaultOptions, message: String) = {
+    if (isPrintHelpNeeded(commandOpts))
+      printUsageAndDie(commandOpts.parser, message)
+  }
 
   /**
    * Check that all the listed options are present
    */
   def checkRequiredArgs(parser: OptionParser, options: OptionSet, required: OptionSpec[_]*) {
     for (arg <- required) {
-      if(!options.has(arg))
+      if (!options.has(arg))
         printUsageAndDie(parser, "Missing required argument \"" + arg + "\"")
     }
   }
@@ -39,10 +62,22 @@ object CommandLineUtils extends Logging {
    * Check that none of the listed options are present
    */
   def checkInvalidArgs(parser: OptionParser, options: OptionSet, usedOption: OptionSpec[_], invalidOptions: Set[OptionSpec[_]]) {
-    if(options.has(usedOption)) {
-      for(arg <- invalidOptions) {
-        if(options.has(arg))
-          printUsageAndDie(parser, "Option \"" + usedOption + "\" can't be used with option\"" + arg + "\"")
+    if (options.has(usedOption)) {
+      for (arg <- invalidOptions) {
+        if (options.has(arg))
+          printUsageAndDie(parser, "Option \"" + usedOption + "\" can't be used with option \"" + arg + "\"")
+      }
+    }
+  }
+
+  /**
+    * Check that none of the listed options are present with the combination of used options
+    */
+  def checkInvalidArgsSet(parser: OptionParser, options: OptionSet, usedOptions: Set[OptionSpec[_]], invalidOptions: Set[OptionSpec[_]]) {
+    if (usedOptions.count(options.has) == usedOptions.size) {
+      for (arg <- invalidOptions) {
+        if (options.has(arg))
+          printUsageAndDie(parser, "Option combination \"" + usedOptions.mkString(",") + "\" can't be used with option \"" + arg + "\"")
       }
     }
   }
@@ -72,5 +107,22 @@ object CommandLineUtils extends Logging {
       else props.put(a(0), a(1))
     }
     props
+  }
+
+  /**
+    * Merge the options into {@code props} for key {@code key}, with the following precedence, from high to low:
+    * 1) if {@code spec} is specified on {@code options} explicitly, use the value;
+    * 2) if {@code props} already has {@code key} set, keep it;
+    * 3) otherwise, use the default value of {@code spec}.
+    * A {@code null} value means to remove {@code key} from the {@code props}.
+    */
+  def maybeMergeOptions[V](props: Properties, key: String, options: OptionSet, spec: OptionSpec[V]) {
+    if (options.has(spec) || !props.containsKey(key)) {
+      val value = options.valueOf(spec)
+      if (value == null)
+        props.remove(key)
+      else
+        props.put(key, value.toString)
+    }
   }
 }

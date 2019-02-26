@@ -36,9 +36,8 @@ import java.util.Map;
 import static org.apache.kafka.common.metrics.Sensor.RecordingLevel.DEBUG;
 import static org.apache.kafka.streams.state.internals.metrics.Sensors.createTaskAndStoreLatencyAndThroughputSensors;
 
-public class MeteredWindowStore<K, V> extends WrappedStateStore.AbstractStateStore implements WindowStore<K, V> {
+public class MeteredWindowStore<K, V> extends WrappedStateStore<WindowStore<Bytes, byte[]>> implements WindowStore<K, V> {
 
-    private final WindowStore<Bytes, byte[]> inner;
     private final String metricScope;
     private final Time time;
     private final Serde<K> keySerde;
@@ -57,7 +56,6 @@ public class MeteredWindowStore<K, V> extends WrappedStateStore.AbstractStateSto
                        final Serde<K> keySerde,
                        final Serde<V> valueSerde) {
         super(inner);
-        this.inner = inner;
         this.metricScope = metricScope;
         this.time = time;
         this.keySerde = keySerde;
@@ -66,12 +64,14 @@ public class MeteredWindowStore<K, V> extends WrappedStateStore.AbstractStateSto
 
     @SuppressWarnings("unchecked")
     @Override
-    public void init(final ProcessorContext context, final StateStore root) {
+    public void init(final ProcessorContext context,
+                     final StateStore root) {
         this.context = context;
-        this.serdes = new StateSerdes<>(ProcessorStateManager.storeChangelogTopic(context.applicationId(), name()),
-                                        keySerde == null ? (Serde<K>) context.keySerde() : keySerde,
-                                        valueSerde == null ? (Serde<V>) context.valueSerde() : valueSerde);
-        this.metrics = (StreamsMetricsImpl) context.metrics();
+        serdes = new StateSerdes<>(
+            ProcessorStateManager.storeChangelogTopic(context.applicationId(), name()),
+            keySerde == null ? (Serde<K>) context.keySerde() : keySerde,
+            valueSerde == null ? (Serde<V>) context.valueSerde() : valueSerde);
+        metrics = (StreamsMetricsImpl) context.metrics();
 
         taskName = context.taskId().toString();
         final String metricsGroup = "stream-" + metricScope + "-metrics";
@@ -86,9 +86,9 @@ public class MeteredWindowStore<K, V> extends WrappedStateStore.AbstractStateSto
         // register and possibly restore the state from the logs
         final long startNs = time.nanoseconds();
         try {
-            inner.init(context, root);
+            super.init(context, root);
         } finally {
-            this.metrics.recordLatency(
+            metrics.recordLatency(
                 restoreTime,
                 startNs,
                 time.nanoseconds()
@@ -103,20 +103,23 @@ public class MeteredWindowStore<K, V> extends WrappedStateStore.AbstractStateSto
     }
 
     @Override
-    public void put(final K key, final V value) {
+    public void put(final K key,
+                    final V value) {
         put(key, value, context.timestamp());
     }
 
     @Override
-    public void put(final K key, final V value, final long windowStartTimestamp) {
+    public void put(final K key,
+                    final V value,
+                    final long windowStartTimestamp) {
         final long startNs = time.nanoseconds();
         try {
-            inner.put(keyBytes(key), serdes.rawValue(value), windowStartTimestamp);
+            wrapped().put(keyBytes(key), serdes.rawValue(value), windowStartTimestamp);
         } catch (final ProcessorStateException e) {
             final String message = String.format(e.getMessage(), key, value);
             throw new ProcessorStateException(message, e);
         } finally {
-            metrics.recordLatency(this.putTime, startNs, time.nanoseconds());
+            metrics.recordLatency(putTime, startNs, time.nanoseconds());
         }
     }
 
@@ -125,22 +128,26 @@ public class MeteredWindowStore<K, V> extends WrappedStateStore.AbstractStateSto
     }
 
     @Override
-    public V fetch(final K key, final long timestamp) {
+    public V fetch(final K key,
+                   final long timestamp) {
         final long startNs = time.nanoseconds();
         try {
-            final byte[] result = inner.fetch(keyBytes(key), timestamp);
+            final byte[] result = wrapped().fetch(keyBytes(key), timestamp);
             if (result == null) {
                 return null;
             }
             return serdes.valueFrom(result);
         } finally {
-            metrics.recordLatency(this.fetchTime, startNs, time.nanoseconds());
+            metrics.recordLatency(fetchTime, startNs, time.nanoseconds());
         }
     }
 
+    @SuppressWarnings("deprecation")
     @Override
-    public WindowStoreIterator<V> fetch(final K key, final long timeFrom, final long timeTo) {
-        return new MeteredWindowStoreIterator<>(inner.fetch(keyBytes(key), timeFrom, timeTo),
+    public WindowStoreIterator<V> fetch(final K key,
+                                        final long timeFrom,
+                                        final long timeTo) {
+        return new MeteredWindowStoreIterator<>(wrapped().fetch(keyBytes(key), timeFrom, timeTo),
                                                 fetchTime,
                                                 metrics,
                                                 serdes,
@@ -149,32 +156,40 @@ public class MeteredWindowStore<K, V> extends WrappedStateStore.AbstractStateSto
 
     @Override
     public KeyValueIterator<Windowed<K>, V> all() {
-        return new MeteredWindowedKeyValueIterator<>(inner.all(), fetchTime, metrics, serdes, time);
+        return new MeteredWindowedKeyValueIterator<>(wrapped().all(), fetchTime, metrics, serdes, time);
     }
 
+    @SuppressWarnings("deprecation")
     @Override
-    public KeyValueIterator<Windowed<K>, V> fetchAll(final long timeFrom, final long timeTo) {
-        return new MeteredWindowedKeyValueIterator<>(inner.fetchAll(timeFrom, timeTo),
-                                                     fetchTime,
-                                                     metrics,
-                                                     serdes,
-                                                     time);
+    public KeyValueIterator<Windowed<K>, V> fetchAll(final long timeFrom,
+                                                     final long timeTo) {
+        return new MeteredWindowedKeyValueIterator<>(
+            wrapped().fetchAll(timeFrom, timeTo),
+            fetchTime,
+            metrics,
+            serdes,
+            time);
     }
 
+    @SuppressWarnings("deprecation")
     @Override
-    public KeyValueIterator<Windowed<K>, V> fetch(final K from, final K to, final long timeFrom, final long timeTo) {
-        return new MeteredWindowedKeyValueIterator<>(inner.fetch(keyBytes(from), keyBytes(to), timeFrom, timeTo),
-                                                     fetchTime,
-                                                     metrics,
-                                                     serdes,
-                                                     time);
+    public KeyValueIterator<Windowed<K>, V> fetch(final K from,
+                                                  final K to,
+                                                  final long timeFrom,
+                                                  final long timeTo) {
+        return new MeteredWindowedKeyValueIterator<>(
+            wrapped().fetch(keyBytes(from), keyBytes(to), timeFrom, timeTo),
+            fetchTime,
+            metrics,
+            serdes,
+            time);
     }
 
     @Override
     public void flush() {
         final long startNs = time.nanoseconds();
         try {
-            inner.flush();
+            super.flush();
         } finally {
             metrics.recordLatency(flushTime, startNs, time.nanoseconds());
         }
