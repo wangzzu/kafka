@@ -431,6 +431,7 @@ class TransactionCoordinator(brokerId: Int,
                 case Right((txnMetadata, newPreSendMetadata)) => //note: 如果日志追加成功，这里会立刻向 client 返回，并且添加一个 txn marker
                   // we can respond to the client immediately and continue to write the txn markers if
                   // the log append was successful
+                  // note: 本地日志追加成功后，就向 client 返回结果，后面就是 kafka 本身需要保证的问题了
                   responseCallback(Errors.NONE)
 
 
