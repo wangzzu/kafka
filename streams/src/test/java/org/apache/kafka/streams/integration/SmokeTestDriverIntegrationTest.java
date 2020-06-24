@@ -18,12 +18,17 @@ package org.apache.kafka.streams.integration;
 
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.integration.utils.EmbeddedKafkaCluster;
+import org.apache.kafka.streams.integration.utils.IntegrationTestUtils;
 import org.apache.kafka.streams.tests.SmokeTestClient;
 import org.apache.kafka.streams.tests.SmokeTestDriver;
+import org.apache.kafka.test.IntegrationTest;
+
 import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Properties;
@@ -32,6 +37,7 @@ import java.util.Set;
 import static org.apache.kafka.streams.tests.SmokeTestDriver.generate;
 import static org.apache.kafka.streams.tests.SmokeTestDriver.verify;
 
+@Category(IntegrationTest.class)
 public class SmokeTestDriverIntegrationTest {
     @ClassRule
     public static final EmbeddedKafkaCluster CLUSTER = new EmbeddedKafkaCluster(3);
@@ -53,7 +59,8 @@ public class SmokeTestDriverIntegrationTest {
         @Override
         public void run() {
             try {
-                final Map<String, Set<Integer>> allData = generate(bootstrapServers, numKeys, maxRecordsPerKey, true);
+                final Map<String, Set<Integer>> allData =
+                    generate(bootstrapServers, numKeys, maxRecordsPerKey, Duration.ofSeconds(20));
                 result = verify(bootstrapServers, allData, maxRecordsPerKey);
 
             } catch (final Exception ex) {
@@ -76,7 +83,7 @@ public class SmokeTestDriverIntegrationTest {
         int numClientsCreated = 0;
         final ArrayList<SmokeTestClient> clients = new ArrayList<>();
 
-        CLUSTER.createTopics(SmokeTestDriver.topics());
+        IntegrationTestUtils.cleanStateBeforeTest(CLUSTER, SmokeTestDriver.topics());
 
         final String bootstrapServers = CLUSTER.bootstrapServers();
         final Driver driver = new Driver(bootstrapServers, 10, 1000);
@@ -103,14 +110,18 @@ public class SmokeTestDriverIntegrationTest {
 
             // let the oldest client die of "natural causes"
             if (clients.size() >= 3) {
-                clients.remove(0).closeAsync();
+                final SmokeTestClient client = clients.remove(0);
+
+                client.closeAsync();
+                while (!client.closed()) {
+                    Thread.sleep(100);
+                }
             }
         }
+
         try {
             // wait for verification to finish
             driver.join();
-
-
         } finally {
             // whether or not the assertions failed, tell all the streams instances to stop
             for (final SmokeTestClient client : clients) {
@@ -119,7 +130,9 @@ public class SmokeTestDriverIntegrationTest {
 
             // then, wait for them to stop
             for (final SmokeTestClient client : clients) {
-                client.close();
+                while (!client.closed()) {
+                    Thread.sleep(100);
+                }
             }
         }
 
@@ -130,5 +143,4 @@ public class SmokeTestDriverIntegrationTest {
         }
         Assert.assertTrue(driver.result().result(), driver.result().passed());
     }
-
 }

@@ -20,6 +20,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.Bytes;
+import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
@@ -32,7 +33,7 @@ import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Produced;
-import org.apache.kafka.streams.kstream.Suppressed;
+import org.apache.kafka.streams.kstream.Suppressed.BufferConfig;
 import org.apache.kafka.streams.kstream.TimeWindows;
 import org.apache.kafka.streams.kstream.Windowed;
 import org.apache.kafka.streams.state.Stores;
@@ -40,7 +41,10 @@ import org.apache.kafka.streams.state.WindowStore;
 import org.apache.kafka.test.TestUtils;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Properties;
+
+import static org.apache.kafka.streams.kstream.Suppressed.untilWindowCloses;
 
 public class SmokeTestClient extends SmokeTestUtil {
 
@@ -50,6 +54,7 @@ public class SmokeTestClient extends SmokeTestUtil {
     private KafkaStreams streams;
     private boolean uncaughtException = false;
     private boolean started;
+    private boolean closed;
 
     public SmokeTestClient(final String name) {
         super();
@@ -60,6 +65,10 @@ public class SmokeTestClient extends SmokeTestUtil {
         return started;
     }
 
+    public boolean closed() {
+        return closed;
+    }
+
     public void start(final Properties streamsProperties) {
         streams = createKafkaStreams(streamsProperties);
         streams.setUncaughtExceptionHandler((t, e) -> {
@@ -68,7 +77,7 @@ public class SmokeTestClient extends SmokeTestUtil {
             e.printStackTrace();
         });
 
-        Runtime.getRuntime().addShutdownHook(new Thread(this::close));
+        Exit.addShutdownHook("streams-shutdown-hook", () -> close());
 
         thread = new Thread(() -> streams.start());
         thread.start();
@@ -113,9 +122,13 @@ public class SmokeTestClient extends SmokeTestUtil {
         final Topology build = getTopology();
         final KafkaStreams streamsClient = new KafkaStreams(build, getStreamsConfig(props));
         streamsClient.setStateListener((newState, oldState) -> {
-            System.out.printf("%s: %s -> %s%n", name, oldState, newState);
+            System.out.printf("%s %s: %s -> %s%n", name, Instant.now(), oldState, newState);
             if (oldState == KafkaStreams.State.REBALANCING && newState == KafkaStreams.State.RUNNING) {
                 started = true;
+            }
+
+            if (newState == KafkaStreams.State.NOT_RUNNING) {
+                closed = true;
             }
         });
         streamsClient.setUncaughtExceptionHandler((t, e) -> {
@@ -149,23 +162,21 @@ public class SmokeTestClient extends SmokeTestUtil {
                     .withRetention(Duration.ofHours(25))
             );
 
-        minAggregation
-            .toStream()
-            .filterNot((k, v) -> k.key().equals("flush"))
-            .map((key, value) -> new KeyValue<>(key.toString(), value))
-            .to("min-raw", Produced.with(stringSerde, intSerde));
+        streamify(minAggregation, "min-raw");
 
-        minAggregation
-            .suppress(Suppressed.untilWindowCloses(Suppressed.BufferConfig.unbounded()))
-            .toStream()
-            .filterNot((k, v) -> k.key().equals("flush"))
-            .map((key, value) -> new KeyValue<>(key.toString(), value))
-            .to("min-suppressed", Produced.with(stringSerde, intSerde));
+        streamify(minAggregation.suppress(untilWindowCloses(BufferConfig.unbounded())), "min-suppressed");
 
         minAggregation
             .toStream(new Unwindow<>())
             .filterNot((k, v) -> k.equals("flush"))
             .to("min", Produced.with(stringSerde, intSerde));
+
+        final KTable<Windowed<String>, Integer> smallWindowSum = groupedData
+            .windowedBy(TimeWindows.of(Duration.ofSeconds(2)).advanceBy(Duration.ofSeconds(1)).grace(Duration.ofSeconds(30)))
+            .reduce((l, r) -> l + r);
+
+        streamify(smallWindowSum, "sws-raw");
+        streamify(smallWindowSum.suppress(untilWindowCloses(BufferConfig.unbounded())), "sws-suppressed");
 
         final KTable<String, Integer> minTable = builder.table(
             "min",
@@ -249,5 +260,13 @@ public class SmokeTestClient extends SmokeTestUtil {
                 .to("tagg", Produced.with(stringSerde, longSerde));
 
         return builder.build();
+    }
+
+    private static void streamify(final KTable<Windowed<String>, Integer> windowedTable, final String topic) {
+        windowedTable
+            .toStream()
+            .filterNot((k, v) -> k.key().equals("flush"))
+            .map((key, value) -> new KeyValue<>(key.toString(), value))
+            .to(topic, Produced.with(stringSerde, intSerde));
     }
 }
